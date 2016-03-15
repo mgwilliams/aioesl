@@ -2,7 +2,8 @@ import asyncio
 import io
 import re
 import types
-import urllib
+# import urllib
+from urllib.parse import unquote
 from uuid import uuid4
 
 from .log import logger
@@ -63,7 +64,7 @@ class EventSocket(asyncio.Protocol):
         elif ":" in line:
             k, v = line.split(":", 1)
             k = k.strip()
-            v = urllib.parse.unquote(v.strip())
+            v = unquote(v.strip())
             return {k: v}
         else:
             return {}

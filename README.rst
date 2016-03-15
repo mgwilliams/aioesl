@@ -8,7 +8,7 @@ aioesl support inbound and outbound connections.
 
 For more information read https://freeswitch.org/confluence/display/FREESWITCH/mod_event_socket
 
-Requirements:
+Requirements
 =============
 
 * Python 3.5.1
