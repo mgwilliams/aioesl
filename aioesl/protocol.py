@@ -2,19 +2,18 @@ import asyncio
 import io
 import re
 import types
-# import urllib
 from urllib.parse import unquote
+from lxml import etree
 from uuid import uuid4
-
-from .log import logger
+import logging
 from asyncio.streams import StreamReader
 
+logger = logging.getLogger('aioesl')
 clients = []
 
 
 class EventSocket(asyncio.Protocol):
 
-    RETRY_TIME = 120
     peers = {}
 
     def __init__(self, **kwargs):
@@ -23,40 +22,47 @@ class EventSocket(asyncio.Protocol):
         self._ev = {}
         self.ip = kwargs.get("ip")
         self._is_server = False
-        self.last_line = [1,2]
+        self.last_line = [1, 2]
         self._content_type_without_raw_data = ["auth/request", "text/disconnect-notice", "command/reply"]
         self._is_connected = False
+        self.reconnect = kwargs.get("reconnect", False)
+        self.retry_time = kwargs.get("retry_time", 120)
+        self.max_retry = kwargs.get("max_retry", -1)
+        self.count_retry = 0
+        self._auth_success = False
 
     def connection_made(self, transport):
         self.peer, self.port = transport.get_extra_info("peername")
-        # logger.info("%s connected" % str(transport.get_extra_info("peername")))
-
         if self._is_server:
             logger.info("Incoming connection from %s:%s" % (self.peer, self.port))
+            self.ip = self.peer
             self.peers["%s:%s" % (self.peer, self.port)] = self
         else:
             logger.info("Outgoing connection to %s:%s" % (self.peer, self.port))
 
         self.transport = transport
         self._is_connected = True
+        self.count_retry = 0
         self._reader = StreamReader(loop=self._loop)
         self._reader.set_transport(transport)
         self._reader_f = asyncio.ensure_future(self._reader_coroutine(), loop=self._loop)
         asyncio.ensure_future(self.start_server()) if self._is_server else None
 
-    @asyncio.coroutine
-    def _reader_coroutine(self):
+    @property
+    def connected(self):
+        return self._is_connected
+
+    async def _reader_coroutine(self):
         """
         Coroutine which reads input from the stream reader and processes it.
         """
         while self._is_connected:
             try:
-                yield from self._handle_item()
+                await self._handle_item()
             except asyncio.CancelledError:
                 pass
             except Exception as e:
                 print(e)
-                return
 
     def parse_ev_attr(self, line):
         if line == "\n":
@@ -77,18 +83,13 @@ class EventSocket(asyncio.Protocol):
         if out != {}:
             self._ev.update(out)
 
-
-        # self._content_length_flag = -1
-        # self.dispatch_event()
-
     @asyncio.coroutine
     def _handle_item(self):
 
         line = yield from self._reader.readline()
-        # print(line)
+        print(">>>>>",line)
         self.last_line = [self.last_line[-1], line]
         if line == b"\n" and self._ev != {}:
-            # print(self.last_line)
             self.dispatch_event()
         else:
             ev_attr = self.parse_ev_attr(line.decode())
@@ -100,7 +101,7 @@ class EventSocket(asyncio.Protocol):
 
                 data = yield from self._reader.readexactly(raw_lenght)
                 data = data.decode()
-                if self._ev.get("Content-Type") =="text/event-plain":
+                if self._ev.get("Content-Type") == "text/event-plain":
                     self._get_plain_body(data)
                 else:
 
@@ -117,11 +118,9 @@ class EventSocket(asyncio.Protocol):
                 self._ev.update(ev_attr)
 
     def data_received(self, data):
-        # logger.debug("IN ESL>>>>: \n----START----\n%s\n----END----" % data.decode())
         self._reader.feed_data(data)
 
     def dispatch_event(self):
-        # print(">>>>>>>>>>>>>>>>>SEND EVENT:", self._ev)
         ev = self._ev.copy()
         self._ev = {}
         self.event_received(ev)
@@ -132,10 +131,9 @@ class EventSocket(asyncio.Protocol):
     def transport_write(self, s):
         if self.transport is not None:
             self.transport.write(s.encode())
-        else:
-            logger.error("ESL not connected to %s" % self.ip)
 
     def send(self, cmd):
+        print("<<<<", cmd+"\n\n")
         self.transport_write(cmd+"\n\n")
 
     def send_msg(self, name, arg=None, uuid="", lock=False):
@@ -157,7 +155,7 @@ class EventSocket(asyncio.Protocol):
 
         if not self._is_server:
             logger.warning("Host %s. Connection lost. " % (str(self.transport.get_extra_info("peername")[0])))
-            asyncio.ensure_future(self.retry_connect(ip=self.peer, port=self.port))
+            asyncio.ensure_future(self.retry_connect(host=self.peer, port=self.port))
 
         if exc is None:
             self._reader.feed_eof()
@@ -173,26 +171,31 @@ class EventSocket(asyncio.Protocol):
         self._reader = None
         self._reader_f = None
 
-    async def retry_connect(self, ip="", port=""):
+    def check_retry(self):
+        if self.reconnect and self.count_retry < self.max_retry:
+            if self.max_retry > 0:
+                self.count_retry += 1
+            return True
+        return False
+
+    async def retry_connect(self, host="", port=""):
         self._is_connected = False
         if not self._is_server:
             self._is_connected = False
 
             if self.transport is not None:
-                ip = self.transport.get_extra_info("peername")[0]
+                host = self.transport.get_extra_info("peername")[0]
                 port = self.transport.get_extra_info("peername")[1]
-
-            await asyncio.sleep(self.RETRY_TIME)
-            logger.info("Start connection to %s:%s" % (ip, port))
-            try:
-                await self._loop.create_connection(lambda: self, ip, port)
-            except:
-
-                logger.error("Can not connect ESL to %s:%s" % (ip, port))
-                asyncio.ensure_future(self.retry_connect(ip=ip, port=port))
+            if self.check_retry():
+                await asyncio.sleep(self.retry_time)
+                logger.info("Start connection to %s:%s" % (host, port))
+                try:
+                    await self._loop.create_connection(lambda: self, host, port)
+                except:
+                    logger.error("Can not connect ESL to %s:%s" % (host, port))
+                    asyncio.ensure_future(self.retry_connect(ip=host, port=port))
         else:
             pass
-            # logger.warning("ESL protocol in Server mode.")
 
     def parse_raw_lines(self, lines):
         lines = lines.split("\n")
@@ -201,14 +204,19 @@ class EventSocket(asyncio.Protocol):
             if ":" in l:
                 t = l.split(": ", maxsplit=1)
                 out[t[0]] = t[1]
-
         return out
 
     def parse_raw_split(self, split="|", raw="", need_fields=[], kill_fl=False):
 
         data = []
-        raw = raw.get("DataResponse")
-        if raw is None:
+        try:
+            raw = raw.get("DataResponse")
+            if raw is None:
+                return data
+        except:
+            logger.error("ОШИБКА В parse_raw_split")
+            logger.error(type(raw))
+            logger.error(raw)
             return data
 
         lines = raw.splitlines()
@@ -226,6 +234,18 @@ class EventSocket(asyncio.Protocol):
 
         return data
 
+    def parse_raw_xml(self, raw):
+        in_str_xml = raw.get("DataResponse")
+        if in_str_xml is None:
+            return None
+
+        try:
+            xml = etree.fromstring(in_str_xml)
+            return xml
+        except:
+            logger.error("Input str must be xml like string")
+            return None
+
 
 class EventProtocol(EventSocket):
 
@@ -240,26 +260,43 @@ class EventProtocol(EventSocket):
             "text/disconnect-notice": self.on_disconnect,
             "text/rude-rejection": self.on_rude_rejection,
         }
+        self.auth_password = kwargs.get("auth", "ClueCon")
 
     def __protocol_send(self, name, args=""):
-        future = asyncio.Future()
-        self.send("%s %s" % (name, args))
-        self._ev_queue.append((name, future))
-        return future
+        if self.transport is not None:
+            future = asyncio.Future()
+            self.send("%s %s" % (name, args))
+            self._ev_queue.append((name, future))
+            return future
+        else:
+            return self.err_response("ESL not connected to %s cmd %s %s" % (self.ip, name, args))
 
     def __protocol_send_msg(self, name, args=None, uuid="", lock=False):
-        future = asyncio.Future()
-        self.send_msg(name, args, uuid, lock)
-        self._ev_queue.append((name, future))
-        return future
+        if self.transport is not None:
+            future = asyncio.Future()
+            self.send_msg(name, args, uuid, lock)
+            self._ev_queue.append((name, future))
+            return future
+        else:
+            return self.err_response("ESL not connected to %s cmd %s %s" % (self.ip, name, args))
 
     def __protocol_send_raw(self, name, args=""):
+        if self.transport is not None:
+            future = asyncio.Future()
+            self.raw_send("%s %s" % (name, args))
+            self._ev_queue.append((name, future))
+            return future
+        else:
+            return self.err_response("ESL not connected to %s cmd %s %s" % (self.ip, name, args))
+
+    def err_response(self, text):
+        logger.error(text)
         future = asyncio.Future()
-        self.raw_send("%s %s" % (name, args))
-        self._ev_queue.append((name, future))
+        future.set_result({'Content-Type': 'Error/response', 'ErrorResponse': text})
         return future
 
     def event_received(self, ev):
+        print(ev)
         ct = ev.get("Content-Type", None)
         if ct is not None:
             method = self._ev_cb.get(ct, None)
@@ -269,8 +306,17 @@ class EventProtocol(EventSocket):
                 print(ct, ev)
                 return self.unknown_content_type(ct, ev)
 
-    async def auth_request(self, ev):
-        pass
+    # def auth_success(self):
+    #     if not self._auth_success:
+    #         return asyncio.Future()
+    #     else:
+    #         return self._auth_success
+    #
+    # async def auth_request(self, ev):
+    #     await self.auth(self.auth_password)
+    #     self.max_retry = 0
+    #     self.auth_success.set_result(True)
+
 
     async def _api_response(self, ev):
         cmd, future = self._ev_queue.pop(0)
@@ -280,11 +326,8 @@ class EventProtocol(EventSocket):
             logger.error("apiResponse on '%s': out of sync?" % cmd)
 
     async def _command_reply(self, ev):
-        # print(ev)
         cmd, future = self._ev_queue.pop(0)
-        # print (cmd, future)
         if ev.get("Reply-Text").startswith("+OK"):
-            # print(">>>>>>>>>>>>>>>>")
             future.set_result(ev)
 
         elif ev.get("Reply-Text").startswith("-ERR"):
@@ -293,7 +336,6 @@ class EventProtocol(EventSocket):
         elif cmd == "auth":
             print("password error")
         else:
-            # deferred.errback(EventError(ctx))
             pass
 
     async def _plain_event(self, ev):
@@ -303,11 +345,6 @@ class EventProtocol(EventSocket):
             evname = "on_" + name.lower().replace("_", "")
             method = getattr(self, evname, None)
         else:
-            # if 'verto_host' in ctx.data:
-            #     method = getattr(self, "onVertoEvent", None)
-            # else:
-            #     print "Event_Name not set in ctx.data."
-                # print "Event_Name not set in ctx.data \n %s" % str(ctx.data)
             logger.error("Не могу получить метод. Не установлен Event_Name")
 
         if callable(method):
@@ -316,13 +353,20 @@ class EventProtocol(EventSocket):
             return self.unbound_event(ev, evname)
 
     async def on_disconnect(self, ev):
-        # print(" on_disconnect", ev)
         if not self._is_server:
-            logger.warning("Host %s. %s " % (str(self.transport.get_extra_info("peername")[0]), ev["raw_data"].replace("\n","")))
+            logger.warning("Host %s. %s " % (
+                str(self.transport.get_extra_info("peername")[0]),
+                ev["DataResponse"].replace("\n","")))
+        else:
+            self.auth_success = asyncio.Future()
 
     async def on_rude_rejection(self, ev):
-        # print(" on_rude_rejection", ev)
-        logger.warning("Host %s. %s " % (str(self.transport.get_extra_info("peername")[0]), ev["raw_data"].replace("\n","")))
+        logger.warning("Host %s. %s " % (
+            str(self.transport.get_extra_info("peername")[0]),
+            ev["DataResponse"].replace("\n","")))
+
+        asyncio.ensure_future(self.retry_connect(host=str(self.transport.get_extra_info("peername")[0]),
+                           port=int(str(self.transport.get_extra_info("peername")[1]))))
 
     def unbound_event(self, ev, evname):
         logger.debug("Метод не определен %s" % evname)
@@ -340,6 +384,7 @@ class EventProtocol(EventSocket):
         """Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#auth
 
         This method is allowed only for Inbound connections."""
+        self._auth_success = False
         return self.__protocol_send("auth", args)
 
     def eventplain(self, args):
@@ -421,6 +466,10 @@ class EventProtocol(EventSocket):
     def answer(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
         return self.__protocol_send_msg("answer", lock=True)
+
+    def pre_answer(self):
+        "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
+        return self.__protocol_send_msg("pre_answer", lock=True)
 
     def bridge(self, args):
         """Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound
@@ -592,7 +641,7 @@ class EventProtocol(EventSocket):
         In this case, the audio playback is automatically terminated
         by pressing either '#' or '8'.
         """
-        self.set("playback_terminators=%s" % terminators or "none")
+        asyncio.ensure_future(self.set("playback_terminators=%s" % terminators or "none"))
         return self.__protocol_send_msg("playback", filename, lock=lock)
 
     def transfer(self, args):
@@ -601,6 +650,12 @@ class EventProtocol(EventSocket):
         >>> transfer("3222 XML default")
         """
         return self.__protocol_send_msg("transfer", args, lock=True)
+
+    def execute_extension(self, args):
+        """Please refer to https://freeswitch.org/confluence/display/FREESWITCH/mod_dptools%3A+execute_extension
+        >>> execute_extension("3222 XML default")
+        """
+        return self.__protocol_send_msg("execute_extension", args, lock=True)
 
     def conference(self, args):
         """Please refer to http://wiki.freeswitch.org/wiki/Mod_conference#API_Reference
