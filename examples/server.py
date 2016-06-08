@@ -1,37 +1,31 @@
-#!/usr/bin/env python3.5
 import asyncio
-from aioesl import EventProtocol
+import logging
+from aioesl.application import Server
+
+import os
+# os.environ['PYTHONASYNCIODEBUG'] = '1'
+
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s | %(levelname)-.1s | %(name)s | %(message)s', datefmt='%d.%m.%y %H:%M:%S')
+logger = logging.getLogger("app")
 
 
-class ESLOut(EventProtocol):
-
+class ESLServer:
     def __init__(self, **kwargs):
-        EventProtocol.__init__(self, **kwargs)
+        self.server = Server(loop=loop, ip=kwargs["ip"], port=kwargs["port"])
+        self.server.set_handler("new_connection", self.new_connection)
 
-    async def auth_request(self, ev):
-        res = await self.auth(self.esl_password)
-        # logger.debug(res)
-        # res1 = await self.eventplain("ANSWER")
-        # logger.debug(res1)
+    async def new_connection(self, data):
+        print(data)
 
+async def main(loop, **kwargs):
+    app = ESLServer(loop=loop, ip=kwargs["ip"], port=kwargs["port"])
+    await app.server.start()
 
-class ESLIn(EventProtocol):
+    # await srv.close_all()
 
-    def __init__(self, **kwargs):
-        EventProtocol.__init__(self, **kwargs)
-        self._is_server = True
-
-def run_server(loop):
-    esl = loop.create_server(lambda: ESLIn(loop=loop), "0.0.0.0", 5678)
-    ok = asyncio.ensure_future(esl)
-    ok.add_done_callback(lambda res: print("Server started"))
-
-
-if __name__ == "__main__":
-    loop = asyncio.get_event_loop()
-    run_server(loop)
-    loop.run_forever()
-    loop.close()
-
-
-
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main(loop, ip="0.0.0.0", port=8021))
+loop.run_forever()
+loop.close()

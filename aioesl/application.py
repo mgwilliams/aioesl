@@ -1,64 +1,90 @@
 import asyncio
-import logging
-from .protocol import EventProtocol
-
-log_srv = logging.getLogger("aioesl SRV")
-log_cli = logging.getLogger("aioesl CLI")
-
-class Server(EventProtocol):
-
-    def __init__(self, **kwargs):
-        EventProtocol.__init__(self, **kwargs)
-        self._is_server = True
+from .connection import ESLConnectionOut, ESLConnectionIn
+from .log import aioesl_log
 
 
-def get_server(loop, ip, port):
-    assert int(port), "Порт должен быть integer"
-    esl = loop.create_server(Server(loop=loop), ip, port)
-    ok = asyncio.ensure_future(esl)
-    ok.add_done_callback(lambda res: print("Server started"))
-    return ok
+class Client:
+
+    def __init__(self, loop, client_ip, client_port, password=None, reconnect=False, retries=0, retry_sleep=30):
+        self._loop = loop
+        self.conn = ESLConnectionOut(self._loop, client_ip, client_port, password=password,
+                                     reconnect=reconnect, retries=retries, retry_sleep=retry_sleep)
+        self.client_ip = client_ip
+        self.client_port = client_port
+        self.password = password
+
+    async def connect(self):
+        await self.conn.open_connection()
+
+    def ready(self):
+        return self.conn.ready()
+
+    def set_handler(self, event, handler):
+        self.conn.set_handler(event, handler)
+
+    def pop_handler(self, event):
+        assert isinstance(event, str), "event mast be str type."
+        self.conn.pop_handler(event)
+
+    # syntactic sugar
+    def __getattr__(self, attr):
+        if not self.conn.check_cmd(attr):
+            raise AttributeError(attr)
+        attr = self.conn.get_cmd(attr)
+        def wrapper(*args, **kw):
+            return attr(*args, **kw)
+        return wrapper
 
 
-class Client(EventProtocol):
+class ClientSession:
+    def __init__(self, loop, reader, writer, client_connected_cb):
+        self._loop = loop
+        self._reader = reader
+        self._writer = writer
 
-    def __init__(self, **kwargs):
-        EventProtocol.__init__(self, **kwargs)
-        self.host = kwargs.get("host")
-        self.port = kwargs.get("port", 8021)
-        self.connection_timeout = kwargs.get("connection_timeout", 10)
+        self.host, self.port = self._writer.get_extra_info('peername')
+        self.conn = ESLConnectionIn(self._loop, self.host, self.port)
 
-    def make_connection(self):
-        future = asyncio.Future()
+        self._client_connected_cb = client_connected_cb
 
-        async def connect():
-            try:
-                await self._loop.create_connection(lambda: self, self.host, self.port)
-                print(11)
-                future.set_result(True)
-            except OSError:
-                log_cli.info("Can not connect to %s:%s" % (self.host, self.port))
-                await reconnect()
+    @property
+    def peer(self):
+        return "%s:%s" % (self.host, self.port)
 
-        async def reconnect():
-            if self.check_retry():
-                await asyncio.sleep(self.retry_time)
-                await self.make_connection()
-            else:
-                future.set_result(False)
+    async def start(self):
+        aioesl_log.info("Incoming connection from %s" % self.peer)
+        await self._client_connected_cb(self)
 
-        async def timer():
-            try:
-                await asyncio.wait_for(connect(), timeout=self.connection_timeout)
-            except asyncio.futures.TimeoutError:
-                log_cli.info("Connect timeout to %s:%s" % (self.host, self.port))
-                await reconnect()
+    def set_handler(self, event, handler):
+        self.conn.set_handler(event, handler)
 
-        assert self.host is not None, "Host can not be None"
-        assert isinstance(self.port, int), "Port can not be None"
-        assert isinstance(self.reconnect, bool), "reconnect is Boolean"
-        assert isinstance(self.retry_time, int), "retry_time is int"
-        asyncio.ensure_future(timer())
-        return future
+    def pop_handler(self, event):
+        assert isinstance(event, str), "event mast be str type."
+        self.conn.pop_handler(event)
 
 
+class Server:
+
+    def __init__(self, loop, ip, port, client_connected_cb):
+        self._loop = loop
+        self.server_ip = ip
+        self.server_port = port
+        self.app = None
+        self.connections = []
+        self._client_connected_cb = client_connected_cb
+
+    @property
+    def server_link(self):
+        return "%s:%s" % (self.server_ip, self.server_port)
+
+    async def start(self):
+        self.app = await asyncio.start_server(client_connected_cb=self.start_client_session,
+                                              host=self.server_ip,
+                                              port=self.server_port,
+                                              loop=self._loop)
+        aioesl_log.info("Server started at %s" % self.server_link)
+
+    async def start_client_session(self, reader, writer):
+        cs = ClientSession(self._loop, reader, writer, self._client_connected_cb)
+        self.connections.append(cs)
+        asyncio.ensure_future(cs.start())
