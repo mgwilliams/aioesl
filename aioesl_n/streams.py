@@ -2,8 +2,12 @@
 
 import socket
 import asyncio
-from datetime import datetime
-
+# from asyncio import coroutines
+# from asyncio import compat
+# from asyncio import asyncio.events
+# from asyncio import futures
+# from asyncio import protocols
+# from asyncio.coroutines import coroutine
 from asyncio.log import logger
 
 
@@ -128,6 +132,7 @@ class ESLFlowControlMixin(asyncio.protocols.Protocol):
                 waiter.set_result(None)
 
     def connection_lost(self, exc):
+        print("12312312312qwerfwergrth")
         self._connection_lost = True
         # Wake up the writer if currently paused.
         if not self._paused:
@@ -165,31 +170,30 @@ class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
     call inappropriate methods of the protocol.)
     """
 
-    def __init__(self, stream_reader, client_connected_cb=None, client_disconnected_cb=None, loop=None):
+    def __init__(self, stream_reader, client_connected_cb=None, loop=None):
         super().__init__(loop=loop)
         self._stream_reader = stream_reader
         self._stream_writer = None
         self._client_connected_cb = client_connected_cb
-        self._client_disconnected_cb = client_disconnected_cb
 
     def connection_made(self, transport):
         self._stream_reader.set_transport(transport)
         if self._client_connected_cb is not None:
-            self._stream_writer = ESLStreamWriter(transport, self, self._stream_reader, self._loop)
-            res = self._client_connected_cb(self._stream_reader, self._stream_writer, self)
+            self._stream_writer = ESLStreamWriter(transport, self,
+                                               self._stream_reader,
+                                               self._loop)
+            res = self._client_connected_cb(self._stream_reader,
+                                            self._stream_writer)
             if asyncio.coroutines.iscoroutine(res):
                 self._loop.create_task(res)
 
     def connection_lost(self, exc):
+        print("connection_lost 35345645674567")
         if exc is None:
             self._stream_reader.feed_eof()
         else:
             self._stream_reader.set_exception(exc)
         super().connection_lost(exc)
-        if self._client_disconnected_cb is not None:
-            res = self._client_disconnected_cb(self._stream_reader, self._stream_writer, self)
-            if asyncio.coroutines.iscoroutine(res):
-                self._loop.create_task(res)
 
     def data_received(self, data):
         self._stream_reader.feed_data(data)
@@ -338,6 +342,10 @@ class ESLStreamReader:
     def feed_eof(self):
         self._eof = True
         self._wakeup_waiter()
+
+        print(self._waiter, self, self.at_eof(), self._transport.is_closing(), self._transport)
+        if self._feed_eof_cb is not None and self._transport.is_closing():
+            self._feed_eof_cb()
 
     def at_eof(self):
         """Return True if the buffer is empty and 'feed_eof' was called."""

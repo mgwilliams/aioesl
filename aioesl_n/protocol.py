@@ -1,43 +1,20 @@
-import os
 import asyncio
 from collections import deque
-from .log import aioesl_log, LogBase
-
-LINE_DELIMITER = "\n"
-CMD_DELIMITER = "\n\n"
+from .log import aioesl_log
 
 
-class ESLCommands(LogBase):
-
-    def __init__(self, loop, **kwargs):
-        self._writer = kwargs.get("writer")
+class ESLProtocol:
+    def __init__(self, password, set_connect_waiter, open_handler, close_handler):
+        self._writer = None
         self._ev_queue = deque()
-        self.password = kwargs.get("password")
+        self._set_connect_waiter = set_connect_waiter
+        self.password = password
         self.event_handlers = {}
-        self.event_handler_log = kwargs.get("event_handler_log", False)
+        self._open_handler = open_handler
+        self._close_handler = close_handler
+
         self._closing = False
         self._close = False
-
-        self._timeout = 300 # Ожидаем ответа от клиента/сервера 5 минут. Потом убиваем соединение.
-
-    def set_handler(self, event, handler):
-        assert isinstance(event, str), "event mast be str type."
-        self.event_handlers[event] = handler
-
-    def pop_handler(self, event):
-        assert isinstance(event, str), "event mast be str type."
-        assert event in self.event_handlers.keys(), "Event handler not found."
-        self.event_handlers.pop(event)
-
-    async def _open_handler(self, **kwargs):
-        pass
-
-    async def _close_handler(self, **kwargs):
-        pass
-
-    @property
-    def peer(self):
-        pass
 
     def reset(self):
         self._ev_queue = deque()
@@ -51,74 +28,55 @@ class ESLCommands(LogBase):
 
     # ======= SEND COMMAND TO ESL
 
-    async def _check_timeout(self, f):
-        await asyncio.sleep(self._timeout)
-        if f.done():
-            return
-        else:
-            self._ev_queue.popleft()
-            f.set_result({'Content-Type': 'Error/response', 'ErrorResponse': "TimeOut"})
-            res = self._close_handler(ev={})
-            if asyncio.coroutines.iscoroutine(res):
-                await res
+    def _write(self, s):
+        if self._writer is not None:
+            self._writer.write(s.encode())
 
-    async def _writeln(self, ln=[]):
-        try:
-            ln.append(CMD_DELIMITER)
-            out = [s.encode() for s in ln]
-            self._writer.writelines(out)
-            await self._writer.drain()
+    def _send(self, cmd):
+        self._write(cmd + "\n\n")
 
-        except Exception as error:
-            aioesl_log.exception(error)
+    def _send_msg(self, name, arg=None, uuid="", lock=False):
+        self._write("sendmsg %s\ncall-command: execute\n" % uuid)
+        self._write("execute-app-name: %s\n" % name)
+        if arg:
+            self._write("execute-app-arg: %s\n" % arg)
+        if lock is True:
+            self._write("event-lock: true\n")
+        self._write("\n\n")
 
-    def _write(self, data):
-        self._writer.write(data)
+    def _raw_send(self, stuff):
+        self._write(stuff)
 
     def _protocol_send(self, name, args=""):
-            if self._writer is not None:
-                future = asyncio.Future()
-                time_future = asyncio.ensure_future(self._check_timeout(future))
-                cmd = "%s %s" % (name, args)
-                asyncio.ensure_future(self._writeln(ln=[cmd]))
-                self._ev_queue.append((name, future, time_future))
-                return future
-            else:
-                return self.err_response("ESL not connected to ХХХ cmd %s %s" % (name, args))
+        if self._writer is not None:
+            future = asyncio.Future()
+            self._send("%s %s" % (name, args))
+            self._ev_queue.append((name, future))
+            return future
+        else:
+            return self.err_response("ESL not connected to ХХХ cmd %s %s" % (name, args))
 
     def _protocol_send_msg(self, name, args=None, uuid="", lock=False):
         if self._writer is not None:
             future = asyncio.Future()
-            time_future = asyncio.ensure_future(self._check_timeout(future))
-            cmd = list()
-            cmd.extend(["sendmsg %s" % uuid, LINE_DELIMITER])
-            cmd.extend(["call-command: execute", LINE_DELIMITER])
-            cmd.extend(["execute-app-name: %s" % name, LINE_DELIMITER])
-            if args:
-                cmd.extend(["execute-app-arg: %s" % args, LINE_DELIMITER])
-            if lock:
-                cmd.extend(["event-lock: true", LINE_DELIMITER])
-            asyncio.ensure_future(self._writeln(ln=cmd))
-            self._ev_queue.append((name, future, time_future))
-            return future
-        else:
-            return self.err_response("ESL not status to %s cmd %s %s" % (self.peer, name, args))
-
-    def _protocol_send_raw(self, name, args=""):
-        if self._writer is not None:
-            future = asyncio.Future()
-            time_future = asyncio.ensure_future(self._check_timeout(future))
-            self._write("%s %s" % (name, args))
-            self._ev_queue.append((name, future, time_future))
-
+            self._send_msg(name, args, uuid, lock)
+            self._ev_queue.append((name, future))
             return future
         else:
             return self.err_response("ESL not status to %s cmd %s %s" % (self.ip, name, args))
 
-    # CONTENT TYPE PROCESSING
+    def _protocol_send_raw(self, name, args=""):
+        if self._writer is not None:
+            future = asyncio.Future()
+            self._raw_send("%s %s" % (name, args))
+            self._ev_queue.append((name, future))
+            return future
+        else:
+            return self.err_response("ESL not status to %s cmd %s %s" % (self.ip, name, args))
 
-    def unknown_content_type(self, ct, ev):
-        self.li("Unknown context type %s" % ct)
+    # END SEND COMMAND TO ESL
+
+    # CONTENT TYPE PROCESSING
 
     def err_response(self, text):
         aioesl_log.error(text)
@@ -126,7 +84,8 @@ class ESLCommands(LogBase):
         future.set_result({'Content-Type': 'Error/response', 'ErrorResponse': text})
         return future
 
-    def dispatch_event(self, ev):
+
+    def process_event(self, ev):
         ct = ev.get("Content-Type", None)
         if ct is None:
             return self.unknown_content_type(ct, ev)
@@ -136,30 +95,30 @@ class ESLCommands(LogBase):
         if callable(method):
             asyncio.ensure_future(method(ev))
         else:
-            return self.unknown_content_type(method_name, ev)
+            return self.unknown_content_type(ct, ev)
 
     async def _auth_request(self, ev):
         if self.password is None:
-            self.lw("Server auth required, but password not set.")
+            aioesl_log.warning("Server auth required, but password not set.")
             return
         res = await self.auth()
         if isinstance(res, dict) and res.get("Reply-Text") == "+OK accepted":
-            await self._open_handler(auth=True)
+            self._set_connect_waiter(True)
         else:
-            self.le("Auth failed.")
-            await self._open_handler(auth=False)
+            aioesl_log.warning("Auth failed.")
+            self._set_connect_waiter(False)
+
+        await self._open_handler(ev)
 
     async def _api_response(self, ev):
-        cmd, future, time_future = self._ev_queue.popleft()
-        time_future.cancel()
+        cmd, future = self._ev_queue.popleft()
         if cmd == "api":
             future.set_result(ev)
         else:
             aioesl_log.error("apiResponse on '%s': out of sync?" % cmd)
 
     async def _command_reply(self, ev):
-        cmd, future, time_future = self._ev_queue.popleft()
-        time_future.cancel()
+        cmd, future = self._ev_queue.popleft()
         if ev.get("Reply-Text").startswith("+OK"):
             future.set_result(ev)
 
@@ -167,34 +126,32 @@ class ESLCommands(LogBase):
             future.set_result(ev)
 
         elif cmd == "auth":
-            aioesl_log.error("password error")
+            print("password error")
         else:
             pass
 
-    async def _text_event_plain(self, ev):
+    async def _plain_event(self, ev):
         name = ev.get("Event-Name")
         if name is not None:
-            if name in self.event_handlers.keys():
-                try:
-                    res = self.event_handlers[name](self, ev)
-                    if asyncio.iscoroutine(res):
-                        await res
-                except Exception as error:
-                    aioesl_log.exception(error)
+            evname = "on_" + name.lower().replace("_", "")
+            if evname in self.handlers.keys():
+                asyncio.ensure_future(self.handlers[evname](ev))
             else:
-                if self.event_handler_log:
-                    aioesl_log.error("Handler for %s not set" % name)
+                if self.handler_log:
+                    aioesl_log.error("Handler for %s not set" % evname)
         else:
-            aioesl_log.error("Не могу получить метод. Не установлен Event-Name")
+            aioesl_log.error("Не могу получить метод. Не установлен Event_Name")
 
     async def _text_disconnect_notice(self, ev):
-        self.lw(ev.get("DataResponse", "Error!!!").replace("\n", " "))
+        aioesl_log.warning(ev.get("DataResponse", "Error!!!").replace("\n", " "))
         await self._close_handler(ev)
 
         # aioesl_log.warning("нужно повесить хендлер для выключения")
 
     async def _rude_rejection(self, ev):
         aioesl_log.warning(ev.get("DataResponse"))
+
+    # END CONTENT TYPE PROCESSING
 
     # EVENT SOCKET COMMANDS
 
@@ -209,8 +166,7 @@ class ESLCommands(LogBase):
 
     def event(self, args):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#event"
-        # return self._protocol_send_msg("event", args, lock=True)
-        return self._protocol_send('event', args)
+        return self._protocol_send_msg("event", args, lock=True)
 
     def connect(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
@@ -442,7 +398,7 @@ class ESLCommands(LogBase):
         """
         return self._protocol_send_msg("record", args, lock=True)
 
-    def playback(self, filename, uuid="", terminators=None, lock=True):
+    def playback(self, filename, terminators=None, lock=True):
         """Please refer to http://wiki.freeswitch.org/wiki/Mod_playback
 
         The optional argument `terminators` may contain a string with
@@ -454,7 +410,7 @@ class ESLCommands(LogBase):
         by pressing either '#' or '8'.
         """
         asyncio.ensure_future(self.set("playback_terminators=%s" % terminators or "none"))
-        return self._protocol_send_msg("playback", filename, uuid=uuid, lock=lock)
+        return self._protocol_send_msg("playback", filename, lock=lock)
 
     def transfer(self, args):
         """Please refer to https://freeswitch.org/confluence/display/FREESWITCH/mod_dptools%3A+transfer
@@ -509,3 +465,31 @@ class ESLCommands(LogBase):
 
     def displace_session(self, params):
         return self._protocol_send_msg("displace_session", params, lock=True)
+
+    # API ShortCats
+
+    def uuid_getvar(self, uuid, varname):
+        """
+        Please refer to https://freeswitch.org/confluence/display/FREESWITCH/mod_commands
+        :param args: [channel_uuid, var_name]
+        :param lock:
+        :return: Fuature
+        """
+        args = "%s %s %s" % ("uuid_getvar", uuid, varname)
+        return self.api(args=args)
+
+    def uuid_displace(self, uuid=None, action="start", file="$", limit="60", mux=""):
+        """
+        >>> uuid_displace <uuid> [start|stop] <file> [<limit>] [mux]
+        :param uuid:
+        :param action:
+        :param file:
+        :param limit:
+        :param mux:
+        :return:
+        """
+
+        params = "uuid_displace {uuid} {action} {file} {limit} {mux}".format(
+            uuid=uuid, action=action, file=file, limit=limit, mux=mux)
+        print(params)
+        return self.api(params)

@@ -2,20 +2,19 @@ import asyncio
 from urllib.parse import unquote
 from .log import aioesl_log
 
-
 class EventParser:
 
-    def __init__(self, **kwargs):
-        self._reader = kwargs.get("reader")
+    def __init__(self, protocol):
+        self._reader = None
         self.last_line = [1, 2]
         self._ev = {}
-        self.dispatch_event_cb = kwargs.get("dispatch_event_cb")
+        self.protocol = protocol
 
     def set_reader(self, reader):
         self._reader = reader
 
     async def read_from_connection(self):
-        while self._reader is not None:
+        while self._reader is not None and not self._reader._eof:
             try:
                 line = await self._reader.readline()
                 self.last_line = [self.last_line[-1], line]
@@ -46,12 +45,12 @@ class EventParser:
                     else:
                         self._ev.update(ev_attr)
             except Exception as e:
-                aioesl_log.exception(e)
+                print(e)
 
     def dispatch_event(self):
         ev = self._ev.copy()
         self._ev = {}
-        self.dispatch_event_cb(ev)
+        self.protocol.process_event(ev)
 
     def parse_ev_attr(self, line):
         if line == "\n":
