@@ -34,7 +34,6 @@ class EventParser:
                         if self._ev.get("Content-Type") == "text/event-plain":
                             self._get_plain_body(data)
                         else:
-
                             if data.startswith("Event-Name"):
                                 self._get_plain_body(data)
                             elif data.startswith("-E"):
