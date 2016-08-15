@@ -18,4 +18,3 @@ Examples
 =========
 
 Examples are available in the examples/ directory.
-

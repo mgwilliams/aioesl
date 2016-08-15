@@ -65,6 +65,7 @@ class Server:
         self.server_ip = ip
         self.server_port = port
         self.app = None
+        self.session_factory = kwargs.get("session_factory", Session)
         self.sessions = []
         self._session_connected_cb = kwargs.get("session_connected_cb")
         self._event_handler_log = kwargs.get("event_handler_log", False)
@@ -82,7 +83,7 @@ class Server:
 
     async def _start_client_session(self, reader, writer, protocol=None):
         try:
-            session = Session(self._loop,
+            session = self.session_factory(self._loop,
                               reader=reader,
                               writer=writer,
                               protocol=protocol,
