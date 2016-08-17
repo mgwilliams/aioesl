@@ -84,7 +84,7 @@ class ESLCommands(LogBase):
                 self._ev_queue.append((name, future, time_future))
                 return future
             else:
-                return self.err_response("ESL not connected to ХХХ cmd %s %s" % (name, args))
+                return self.err_response("ESL not connected to %s cmd %s %s" % (self.peer, name, args))
 
     def _protocol_send_msg(self, name, args=None, uuid="", lock=False):
         if self._writer is not None:
@@ -189,8 +189,9 @@ class ESLCommands(LogBase):
 
     async def _text_disconnect_notice(self, ev):
         self.lw(ev.get("DataResponse", "Error!!!").replace("\n", " "))
-        await self._close_handler(ev)
-
+        res = self._close_handler(ev={})
+        if asyncio.coroutines.iscoroutine(res):
+            await res
         # aioesl_log.warning("нужно повесить хендлер для выключения")
 
     async def _rude_rejection(self, ev):

@@ -41,19 +41,22 @@ class Client(SessionBase):
                 self.set_connect_waiter(True)
 
         except OSError:
-            self.le("Connect call failed %s" % self.peer)
+            self.le("Connect call failed")
             asyncio.ensure_future(self.reconnect())
+
+    async def _close_handler(self, ev):
+        await super()._close_handler(ev=ev)
+        asyncio.ensure_future(self.reconnect())
 
     async def reconnect(self):
         if self._reconnect:
             self._cur_retry += 1
             if self._retries == 0 or self._retries >= self._cur_retry:
-                aioesl_log.info("Reconnecting to %s at %s" % (self.peer, self._retry_sleep))
+                self.li("Reconnecting at %s" % self._retry_sleep)
                 self._closing = False
                 self._connect_waiter = asyncio.Future()
-                self._protocol._closing = False
                 await asyncio.sleep(self._retry_sleep)
-                await self.connect()
+                await self.open_connection()
             else:
                 aioesl_log.error("Max retry. Stop connection.")
 
