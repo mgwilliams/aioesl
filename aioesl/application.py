@@ -71,7 +71,9 @@ class Server:
         self.session_factory = kwargs.get("session_factory", Session)
         self.sessions = []
         self._session_connected_cb = kwargs.get("session_connected_cb")
+        self._session_destroy_cb = kwargs.get("session_destroy_cb")
         self._event_handler_log = kwargs.get("event_handler_log", False)
+
 
     @property
     def server_link(self):
@@ -100,6 +102,11 @@ class Server:
     def destroy_session(self, session):
         if session in self.sessions:
             self.sessions.remove(session)
+
+        if self._session_destroy_cb is not None:
+            cb = self._session_destroy_cb(self)
+            if asyncio.iscoroutine(cb):
+                asyncio.ensure_future(cb)
 
 
 class Session(SessionBase):
