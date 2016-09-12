@@ -1,5 +1,7 @@
 import os
 import asyncio
+import time
+
 from collections import deque
 from .log import aioesl_log, LogBase
 
@@ -66,6 +68,7 @@ class ESLCommands(LogBase):
         try:
             ln.append(CMD_DELIMITER)
             out = [s.encode() for s in ln]
+            # print("NEWESL", int(round(time.time() * 1000)),self.peer, out)
             self._writer.writelines(out)
             await self._writer.drain()
 

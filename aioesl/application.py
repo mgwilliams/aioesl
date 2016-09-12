@@ -12,7 +12,6 @@ class Client(SessionBase):
     def __init__(self, loop, **kwargs):
         super().__init__(loop, **kwargs)
 
-        self._password = kwargs.get("password", "ClueCon")
         self._reconnect = kwargs.get("reconnect", False)
         self._retries = kwargs.get("retries", 5)
         self._retry_sleep = kwargs.get("retry_sleep", 30)
@@ -37,8 +36,11 @@ class Client(SessionBase):
             self._parser.set_reader(self._reader)
             self.set_writer(self._writer)
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
-            if self._password is None:
+
+            if self.password is None:
                 self.set_connect_waiter(True)
+
+            await self.ready()
 
         except OSError:
             self.le("Connect call failed")
@@ -57,6 +59,7 @@ class Client(SessionBase):
                 self._connect_waiter = asyncio.Future()
                 await asyncio.sleep(self._retry_sleep)
                 await self.open_connection()
+                await self.ready()
             else:
                 aioesl_log.error("Max retry. Stop connection.")
 

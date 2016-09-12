@@ -28,6 +28,7 @@ class SessionBase(ESLCommands):
     def set_connect_waiter(self, res):
         self._connect_waiter.set_result(res)
 
+    #@todo Проверить, зачем этот тут нужно!
     async def _open_handler(self, **kwargs):
         if kwargs.get("auth"):
             self._connect_waiter.set_result(True)
