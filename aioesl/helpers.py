@@ -98,3 +98,29 @@ def parse_json(raw, logger=aioesl_log):
     except Exception as error:
         logger.exception(error)
         return None
+
+
+def parse_raw_split(split="|", raw={}, need_fields=[], kill_fl=False):
+    data = []
+    try:
+        raw = raw.get("DataResponse")
+        if raw is None:
+            return data
+    except:
+        aioesl_log.exception(msg="parse_raw_split")
+        return data
+
+    lines = raw.splitlines()
+    if kill_fl and len(lines) > 1:
+        lines = lines[1:]
+
+    if len(lines) > 1:
+        keys = lines[0].strip().split(split)
+        for line in lines[1:]:
+            fields = line.split(split)
+            if len(fields) != len(keys):
+                continue
+            r = {keys[i]: fields[i] for i in range(0, len(keys)) if keys[i] in need_fields or len(need_fields) == 0}
+            data.append(r)
+
+    return data
