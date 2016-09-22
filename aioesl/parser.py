@@ -1,4 +1,6 @@
 import asyncio
+import errno
+from socket import error as SocketError
 from urllib.parse import unquote
 from .log import aioesl_log
 
@@ -44,8 +46,20 @@ class EventParser:
                         self.dispatch_event()
                     else:
                         self._ev.update(ev_attr)
-            except Exception as e:
-                aioesl_log.exception(e)
+            except SocketError as e:
+                if e.errno != errno.ECONNRESET:
+                    aioesl_log.exception("read_from_connection SocketError")
+                else:
+                    aioesl_log.exception("SocketError Разрыв соединения")
+                res = self._reader._close_handler(ev={})
+                if asyncio.coroutines.iscoroutine(res):
+                    await res
+            except:
+                aioesl_log.exception("read_from_connection")
+
+                res = self._reader._close_handler(ev={})
+                if asyncio.coroutines.iscoroutine(res):
+                    await res
 
     def dispatch_event(self):
         ev = self._ev.copy()
