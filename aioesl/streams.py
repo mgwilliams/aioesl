@@ -181,6 +181,7 @@ class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
                 self._loop.create_task(res)
 
     def connection_lost(self, exc):
+        # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>connection_lost", exc, self._stream_reader._eof)
         if exc is None:
             self._stream_reader.feed_eof()
         else:
@@ -195,6 +196,7 @@ class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
         self._stream_reader.feed_data(data)
 
     def eof_received(self):
+        # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>eof_received")
         self._stream_reader.feed_eof()
         return True
 
@@ -336,6 +338,7 @@ class ESLStreamReader:
             self._transport.resume_reading()
 
     def feed_eof(self):
+        # print(">>>>>>>><>>>>>>>>>>>>>>>>>>feed_eof" )
         self._eof = True
         self._wakeup_waiter()
 
@@ -385,14 +388,21 @@ class ESLStreamReader:
     @asyncio.coroutine
     def readline(self):
         if self._exception is not None:
+            logger.critical(str(self._exception))
             raise self._exception
 
         line = bytearray()
         not_enough = True
-
+        # _c = 1
         while not_enough:
+            # print("stream 394")
+            # _c +=1
+            # if _c > 100:
+            #     break
+
             while self._buffer and not_enough:
                 ichar = self._buffer.find(b'\n')
+                # print("stream 397")
                 if ichar < 0:
                     line.extend(self._buffer)
                     self._buffer.clear()
@@ -430,6 +440,7 @@ class ESLStreamReader:
             # bytes.  So just call self.read(self._limit) until EOF.
             blocks = []
             while True:
+                print("stream 433")
                 block = yield from self.read(self._limit)
                 if not block:
                     break

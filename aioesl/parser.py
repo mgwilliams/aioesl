@@ -4,6 +4,12 @@ from socket import error as SocketError
 from urllib.parse import unquote
 from .log import aioesl_log
 
+import traceback
+import sys
+
+
+from concurrent.futures._base import CancelledError
+
 
 class EventParser:
 
@@ -17,8 +23,9 @@ class EventParser:
         self._reader = reader
 
     async def read_from_connection(self):
-        while self._reader is not None:
+        while self._reader is not None and not self._reader.at_eof():
             try:
+                # print(self._reader._transport, "parser 22", str(self._reader.__dict__))
                 line = await self._reader.readline()
                 self.last_line = [self.last_line[-1], line]
                 if line == b"\n" and self._ev != {}:
@@ -46,20 +53,29 @@ class EventParser:
                         self.dispatch_event()
                     else:
                         self._ev.update(ev_attr)
+
             except SocketError as e:
                 if e.errno != errno.ECONNRESET:
                     aioesl_log.exception("read_from_connection SocketError")
+                    self._reader.feed_eof()
                 else:
                     aioesl_log.exception("SocketError Разрыв соединения")
-                res = self._reader._close_handler(ev={})
-                if asyncio.coroutines.iscoroutine(res):
-                    await res
+                    self._reader.feed_eof()
+                # res = self._reader.feed_eof()
+                # if asyncio.coroutines.iscoroutine(res):
+                #     await res
+            except CancelledError:
+                aioesl_log.info("Close connection.")
+                # self._reader._waiter.cancel()
+                self._reader.feed_eof()
             except:
                 aioesl_log.exception("read_from_connection")
-
-                res = self._reader._close_handler(ev={})
-                if asyncio.coroutines.iscoroutine(res):
-                    await res
+                self._reader.feed_eof()
+                # res = self._reader.feed_eof()
+                # self._reader.
+                # res = self._reader._close_handler(ev={})
+                # if asyncio.coroutines.iscoroutine(res):
+                #     await res
 
     def dispatch_event(self):
         ev = self._ev.copy()

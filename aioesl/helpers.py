@@ -124,3 +124,39 @@ def parse_raw_split(split="|", raw={}, need_fields=[], kill_fl=False):
             data.append(r)
 
     return data
+
+
+def json_response_check(data=None):
+
+    if data.get("DataResponse") is None:
+        return False, data.get("ErrorData")
+
+    try:
+        data = json.loads(data["DataResponse"])
+    except:
+        print(data, type(data))
+        return False, "No Json Data"
+
+    if data.get("status") != "success":
+        return False, data.get("status")
+
+    return True, data.get("response", [])
+
+
+def json_ccfilter(data=[], need_field=None, filter_field=None, filter_value=None):
+    result = []
+
+    for row in data:
+        append = False
+        if filter_field is None:
+            append = True
+        elif row[filter_field].endswith(str(filter_value)):
+            append = True
+
+        if append:
+            if need_field is None:
+                result.append(row)
+            else:
+                result.append(row[need_field])
+
+    return result

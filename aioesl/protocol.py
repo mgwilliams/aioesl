@@ -1,6 +1,7 @@
 import os
 import asyncio
 import time
+import json
 
 from collections import deque
 from .log import aioesl_log, LogBase
@@ -68,12 +69,16 @@ class ESLCommands(LogBase):
         try:
             ln.append(CMD_DELIMITER)
             out = [s.encode() for s in ln]
-            # print("NEWESL", int(round(time.time() * 1000)),self.peer, out)
-            self._writer.writelines(out)
-            await self._writer.drain()
 
-        except Exception as error:
-            aioesl_log.exception(error)
+            try:
+                self._writer.writelines(out)
+                await self._writer.drain()
+            except:
+                aioesl_log.exception("_writeln  1")
+                await self._close_handler()
+        except:
+            aioesl_log.exception("_writeln  2")
+            await self._close_handler()
 
     def _write(self, data):
         self._writer.write(data)
@@ -137,9 +142,20 @@ class ESLCommands(LogBase):
         method_name = "_%s" % ct.lower().replace("/", "_").replace("-", "_")
         method = getattr(self, method_name, None)
         if callable(method):
-            asyncio.ensure_future(method(ev))
+            try:
+                asyncio.ensure_future(method(ev))
+            except:
+                aioesl_log.exception("dispatch_event")
         else:
             return self.unknown_content_type(method_name, ev)
+
+    async def _text_rude_rejection(self, ev):
+        if ev.get("DataResponse") == "Access Denied, go away.\n":
+            aioesl_log.warn("[ %s ] %s" % (self.peer, ev.get("DataResponse")))
+            self._closing = True
+            await self._close_handler(ev=ev, status="AuthFailed")
+        else:
+            aioesl_log.info(str(ev))
 
     async def _auth_request(self, ev):
         if self.password is None:
@@ -513,3 +529,20 @@ class ESLCommands(LogBase):
 
     def displace_session(self, params):
         return self._protocol_send_msg("displace_session", params, lock=True)
+
+
+    # shortcats
+
+    def json(self, cmd, format=None, data=None):
+        """
+        Please refer to  https://freeswitch.org/confluence/display/FREESWITCH/mod_callcenter
+        json {"command": "callcenter_config", "format": "pretty", "data": {"arguments":"agent list"}}
+        :return:
+        """
+        _ = '"command": "%s"' % cmd
+        if format is not None:
+            _ += ', "format": "%s"' % format
+        if data is not None:
+            _ += ', "data": %s' % json.dumps(data)
+
+        return self.api('json {%s}' % _)

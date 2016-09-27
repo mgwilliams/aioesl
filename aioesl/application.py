@@ -6,6 +6,8 @@ from .log import aioesl_log
 import traceback
 import sys
 
+list_outbounds = []
+
 
 class Client(SessionBase):
 
@@ -23,6 +25,7 @@ class Client(SessionBase):
         assert isinstance(self._retry_sleep, int), "retry_sleep mast be int type"
 
         self._cur_retry = 0
+        self.cb_on_connected = kwargs.get("cb_on_connected")
 
     async def open_connection(self):
         if self._reader is not None:
@@ -37,18 +40,33 @@ class Client(SessionBase):
             self.set_writer(self._writer)
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
 
+            list_outbounds.append(self)
+            self.ld("Добавил в список подключений %s" % str(self))
+
             if self.password is None:
                 self.set_connect_waiter(True)
 
             await self.ready()
-
-        except OSError:
-            self.le("Connect call failed")
+            if self.cb_on_connected is not None:
+                asyncio.ensure_future(self.cb_on_connected)
+        except OSError as err:
+            if err.errno == 111:
+                self.le("Ошибка установки подлючения OSError 111.")
+            else:
+                aioesl_log.exception("open_connection")
             asyncio.ensure_future(self.reconnect())
 
-    async def _close_handler(self, ev):
-        await super()._close_handler(ev=ev)
-        asyncio.ensure_future(self.reconnect())
+    async def _close_handler(self, **kwargs):
+        await super()._close_handler(**kwargs)
+        if self._data_reader is not None:
+            self._data_reader.cancel()
+
+        if kwargs.get("status") != "AuthFailed" and not self._closing:
+            print(">>>>>>>", kwargs.get("status"))
+            await self.reconnect()
+
+        list_outbounds.remove(self)
+        self.ld("Удалил из списка подключений %s" % str(self))
 
     async def reconnect(self):
         if self._reconnect:
@@ -59,9 +77,20 @@ class Client(SessionBase):
                 self._connect_waiter = asyncio.Future()
                 await asyncio.sleep(self._retry_sleep)
                 await self.open_connection()
-                await self.ready()
+                # await self.ready()
             else:
                 aioesl_log.error("Max retry. Stop connection.")
+
+    def shutdown(self):
+
+        def ok():
+            self.li("Подключение выключено.")
+        self._closing = True
+        ex = asyncio.ensure_future(self.exit())
+        cp = asyncio.ensure_future(self._close_handler())
+        cp.add_done_callback(ok)
+        ex.add_done_callback(self._close_handler)
+
 
 
 class Server:

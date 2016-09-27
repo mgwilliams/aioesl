@@ -33,12 +33,16 @@ class SessionBase(ESLCommands):
         if kwargs.get("auth"):
             self._connect_waiter.set_result(True)
 
-    async def _close_handler(self, ev):
-        self._reader.feed_eof()
-        self._writer.close()
+    async def _close_handler(self, **kwargs):
+        await super()._close_handler(**kwargs)
+        if self._reader is not None:
+            self._reader.feed_eof()
+
+        if self._writer is not None:
+            self._writer.close()
+
         self._writer = None
         self._reader = None
-        # self._data_reader.cancel()
         self._data_reader = None
         self._parser.set_reader(self._reader)
         self.reset()
