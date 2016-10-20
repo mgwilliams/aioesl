@@ -143,9 +143,8 @@ def json_response_check(data=None):
     return True, data.get("response", [])
 
 
-def json_ccfilter(data=[], need_field=None, filter_field=None, filter_value=None):
+def json_ccfilter(data=list(), need_field=None, filter_field=None, filter_value=None):
     result = []
-
     for row in data:
         append = False
         if filter_field is None:
@@ -154,9 +153,11 @@ def json_ccfilter(data=[], need_field=None, filter_field=None, filter_value=None
             append = True
 
         if append:
-            if need_field is None:
-                result.append(row)
-            else:
+            if isinstance(need_field, str):
                 result.append(row[need_field])
-
+            elif isinstance(need_field, list):
+                r = {i: row[i] for i in need_field if i in row.keys()}
+                result.append(r)
+            else:
+                result.append(row)
     return result

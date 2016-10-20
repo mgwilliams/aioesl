@@ -204,7 +204,7 @@ class ESLCommands(LogBase):
                 if self.event_handler_log:
                     aioesl_log.error("Handler for %s not set" % name)
         else:
-            aioesl_log.error("Не могу получить метод. Не установлен Event-Name")
+            aioesl_log.error("Не могу получить метод. Не установлен hosts")
 
     async def _text_disconnect_notice(self, ev):
         self.lw(ev.get("DataResponse", "Error!!!").replace("\n", " "))

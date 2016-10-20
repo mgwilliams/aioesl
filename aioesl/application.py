@@ -34,8 +34,6 @@ class Client(SessionBase):
         try:
             self.li("Connecting. %s retry." % self._cur_retry)
             self._reader, self._writer = await open_connection(self._host, self._port, loop=self._loop)
-
-            self.li("Connected.")
             self._parser.set_reader(self._reader)
             self.set_writer(self._writer)
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
@@ -50,10 +48,7 @@ class Client(SessionBase):
             if self.cb_on_connected is not None:
                 asyncio.ensure_future(self.cb_on_connected)
         except OSError as err:
-            if err.errno == 111:
-                self.le("Ошибка установки подлючения OSError 111.")
-            else:
-                aioesl_log.exception("open_connection")
+            self.le("Ошибка установки подлючения OSError %s." % err.errno)
             asyncio.ensure_future(self.reconnect())
 
     async def _close_handler(self, **kwargs):
@@ -65,7 +60,8 @@ class Client(SessionBase):
             print(">>>>>>>", kwargs.get("status"))
             await self.reconnect()
 
-        list_outbounds.remove(self)
+        if self in list_outbounds:
+            list_outbounds.remove(self)
         self.ld("Удалил из списка подключений %s" % str(self))
 
     async def reconnect(self):
