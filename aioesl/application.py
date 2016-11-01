@@ -1,10 +1,7 @@
 import asyncio
 from .streams import start_server, open_connection
 from .connection import SessionBase
-from .protocol import ESLCommands
 from .log import aioesl_log
-import traceback
-import sys
 
 list_outbounds = []
 
@@ -39,7 +36,7 @@ class Client(SessionBase):
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
 
             list_outbounds.append(self)
-            self.ld("Добавил в список подключений %s" % str(self))
+            self.log_debug("Добавил в список подключений %s" % str(self))
 
             if self.password is None:
                 self.set_connect_waiter(True)
@@ -57,12 +54,11 @@ class Client(SessionBase):
             self._data_reader.cancel()
 
         if kwargs.get("status") != "AuthFailed" and not self._closing:
-            print(">>>>>>>", kwargs.get("status"))
             await self.reconnect()
 
         if self in list_outbounds:
             list_outbounds.remove(self)
-        self.ld("Удалил из списка подключений %s" % str(self))
+        self.log_debug("Удалил из списка подключений %s" % str(self))
 
     async def reconnect(self):
         if self._reconnect:
@@ -88,20 +84,18 @@ class Client(SessionBase):
         ex.add_done_callback(self._close_handler)
 
 
-
 class Server:
 
     def __init__(self, loop, ip, port, **kwargs):
         self._loop = loop
         self.server_ip = ip
-        self.server_port = port
+        self.server_port = int(port)
         self.app = None
         self.session_factory = kwargs.get("session_factory", Session)
         self.sessions = []
         self._session_connected_cb = kwargs.get("session_connected_cb")
         self._session_destroy_cb = kwargs.get("session_destroy_cb")
         self._event_handler_log = kwargs.get("event_handler_log", False)
-
 
     @property
     def server_link(self):
@@ -126,6 +120,7 @@ class Server:
             await session.start(session_connected_cb=self._session_connected_cb)
         except Exception as error:
             aioesl_log.exception(error)
+            self.destroy_session(session)
 
     def destroy_session(self, session):
         if session in self.sessions:

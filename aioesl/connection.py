@@ -19,6 +19,10 @@ class SessionBase(ESLCommands):
             self._host, self._port = self._writer.transport.get_extra_info('peername')
 
     @property
+    def host(self):
+        return self._host
+
+    @property
     def peer(self):
         return "%s:%s" % (self._host, self._port)
 

@@ -13,6 +13,7 @@ CMD_DELIMITER = "\n\n"
 class ESLCommands(LogBase):
 
     def __init__(self, loop, **kwargs):
+        super().__init__(loop, **kwargs)
         self._writer = kwargs.get("writer")
         self._ev_queue = deque()
         self.password = kwargs.get("password")
@@ -126,7 +127,7 @@ class ESLCommands(LogBase):
     # CONTENT TYPE PROCESSING
 
     def unknown_content_type(self, ct, ev):
-        self.li("Unknown context type %s" % ct)
+        self.le("Unknown context type %s" % ct)
 
     def err_response(self, text):
         aioesl_log.error(text)
@@ -159,7 +160,7 @@ class ESLCommands(LogBase):
 
     async def _auth_request(self, ev):
         if self.password is None:
-            self.lw("Server auth required, but password not set.")
+            self.le("Server auth required, but password not set.")
             return
         res = await self.auth()
         if isinstance(res, dict) and res.get("Reply-Text") == "+OK accepted":
@@ -207,7 +208,7 @@ class ESLCommands(LogBase):
             aioesl_log.error("Не могу получить метод. Не установлен hosts")
 
     async def _text_disconnect_notice(self, ev):
-        self.lw(ev.get("DataResponse", "Error!!!").replace("\n", " "))
+        self.log_debug(ev.get("DataResponse", "Error!!!").replace("\n", " "))
         res = self._close_handler(ev={})
         if asyncio.coroutines.iscoroutine(res):
             await res
