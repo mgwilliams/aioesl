@@ -68,6 +68,9 @@ class ESLCommands(LogBase):
 
     async def _writeln(self, ln=[]):
         try:
+            if self._writer is None:
+                await self._close_handler(ev={})
+                return
             ln.append(CMD_DELIMITER)
             out = [s.encode() for s in ln]
 
@@ -76,10 +79,10 @@ class ESLCommands(LogBase):
                 await self._writer.drain()
             except:
                 aioesl_log.exception("_writeln  1")
-                await self._close_handler()
+                await self._close_handler(ev={})
         except:
             aioesl_log.exception("_writeln  2")
-            await self._close_handler()
+            await self._close_handler(ev={})
 
     def _write(self, data):
         self._writer.write(data)
