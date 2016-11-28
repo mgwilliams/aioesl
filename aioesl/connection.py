@@ -50,4 +50,5 @@ class SessionBase(ESLCommands):
         self._data_reader = None
         self._parser.set_reader(self._reader)
         self.reset()
-        self.li("Connection closed.")
+        if self.debug:
+            self.li("Connection closed.")

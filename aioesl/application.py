@@ -29,14 +29,16 @@ class Client(SessionBase):
             raise "Reader is started!"
 
         try:
-            self.li("Connecting. %s retry." % self._cur_retry)
+            if self.debug:
+                self.li("Connecting. %s retry." % self._cur_retry)
             self._reader, self._writer = await open_connection(self._host, self._port, loop=self._loop)
             self._parser.set_reader(self._reader)
             self.set_writer(self._writer)
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
 
             list_outbounds.append(self)
-            self.log_debug("Добавил в список подключений %s" % str(self))
+            if self.debug:
+                self.log_debug("Добавил в список подключений %s" % str(self))
 
             if self.password is None:
                 self.set_connect_waiter(True)
@@ -58,7 +60,8 @@ class Client(SessionBase):
 
         if self in list_outbounds:
             list_outbounds.remove(self)
-        self.log_debug("Удалил из списка подключений %s" % str(self))
+        if self.debug:
+            self.log_debug("Удалил из списка подключений %s" % str(self))
 
     async def reconnect(self):
         if self._reconnect:

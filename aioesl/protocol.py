@@ -50,6 +50,10 @@ class ESLCommands(LogBase):
     def closing(self):
         return self._closing
 
+    @property
+    def closed(self):
+        return True if self._writer is None else False
+
     def set_writer(self, writer):
         self._writer = writer
 
@@ -60,7 +64,13 @@ class ESLCommands(LogBase):
         if f.done():
             return
         else:
-            self._ev_queue.popleft()
+            try:
+                if len(self._ev_queue) > 0:
+                    self._ev_queue.popleft()
+            except:
+                # self.lw()
+                self.log_exc("_check_timeout Очередь пуста. F = %s" % str(f))
+
             f.set_result({'Content-Type': 'Error/response', 'ErrorResponse': "TimeOut"})
             res = self._close_handler(ev={})
             if asyncio.coroutines.iscoroutine(res):
