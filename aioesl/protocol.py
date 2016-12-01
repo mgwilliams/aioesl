@@ -26,10 +26,12 @@ class ESLCommands(LogBase):
 
     def set_handler(self, event, handler):
         assert isinstance(event, str), "event mast be str type."
+        event = event.split(" ")[0]
         self.event_handlers[event] = handler
 
     def pop_handler(self, event):
         assert isinstance(event, str), "event mast be str type."
+        event = event.split(" ")[0]
         assert event in self.event_handlers.keys(), "Event handler not found."
         self.event_handlers.pop(event)
 
@@ -218,7 +220,7 @@ class ESLCommands(LogBase):
                 if self.event_handler_log:
                     aioesl_log.error("Handler for %s not set" % name)
         else:
-            aioesl_log.error("Не могу получить метод. Не установлен hosts")
+            aioesl_log.error("Не могу получить метод.")
 
     async def _text_disconnect_notice(self, ev):
         self.log_debug(ev.get("DataResponse", "Error!!!").replace("\n", " "))
