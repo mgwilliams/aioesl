@@ -112,17 +112,20 @@ class Server:
         aioesl_log.info("Server started at %s" % self.server_link)
 
     async def _start_client_session(self, reader, writer, protocol=None):
+        session = self.session_factory(self._loop,
+                                       reader=reader,
+                                       writer=writer,
+                                       protocol=protocol,
+                                       destroy_session=self.destroy_session,
+                                       event_handler_log=self._event_handler_log)
+        self.sessions.append(session)
         try:
-            session = self.session_factory(self._loop,
-                              reader=reader,
-                              writer=writer,
-                              protocol=protocol,
-                              destroy_session=self.destroy_session,
-                              event_handler_log=self._event_handler_log)
-            self.sessions.append(session)
             await session.start(session_connected_cb=self._session_connected_cb)
+        except GeneratorExit:
+            aioesl_log.error("Завершаю работу подключения c ошибкой GeneratorExit")
         except Exception as error:
             aioesl_log.exception(error)
+        finally:
             self.destroy_session(session)
 
     def destroy_session(self, session):
