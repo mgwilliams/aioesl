@@ -79,6 +79,7 @@ class ESLCommands(LogBase):
                 await res
 
     async def _writeln(self, ln=[]):
+
         try:
             if self._writer is None:
                 await self._close_handler(ev={})
@@ -87,6 +88,7 @@ class ESLCommands(LogBase):
             out = [s.encode() for s in ln]
 
             try:
+                # self.li(out)
                 self._writer.writelines(out)
                 await self._writer.drain()
             except:
@@ -97,6 +99,7 @@ class ESLCommands(LogBase):
             await self._close_handler(ev={})
 
     def _write(self, data):
+        # self.li(data)
         self._writer.write(data)
 
     def _protocol_send(self, name, args=""):
@@ -151,6 +154,7 @@ class ESLCommands(LogBase):
         return future
 
     def dispatch_event(self, ev):
+        # self.ld(ev)
         ct = ev.get("Content-Type", None)
         if ct is None:
             return self.unknown_content_type(ct, ev)
