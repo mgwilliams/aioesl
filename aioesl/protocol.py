@@ -373,6 +373,13 @@ class ESLCommands(LogBase):
         """
         return self._protocol_send_msg("bind_meta_app", args, lock=True)
 
+    def bind_digit_action(self, args):
+        """Please refer to https://freeswitch.org/confluence/display/FREESWITCH/mod_dptools%3A+bind_digit_action
+
+        >>> bind_digit_action("my_digits,11,exec:execute_extension,att_xfer XML default,both,self")
+        """
+        return self._protocol_send_msg("bind_digit_action", args, lock=True)
+
     def wait_for_silence(self, args):
         """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_wait_for_silence
 
