@@ -65,7 +65,7 @@ class EventParser:
                 # if asyncio.coroutines.iscoroutine(res):
                 #     await res
             except CancelledError:
-                aioesl_log.info("Close connection.")
+                aioesl_log.debug("Close connection %s!" % self._reader._transport.get_extra_info('peername'))
                 # self._reader._waiter.cancel()
                 self._reader.feed_eof()
             except:
