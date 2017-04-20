@@ -100,6 +100,7 @@ class ESLCommands(LogBase):
 
     def _write(self, data):
         # self.li(data)
+        # self.li(type(data))
         self._writer.write(data)
 
     def _protocol_send(self, name, args=""):
@@ -131,16 +132,27 @@ class ESLCommands(LogBase):
         else:
             return self.err_response("ESL not status to %s cmd %s %s" % (self.peer, name, args))
 
-    def _protocol_send_raw(self, name, args=""):
+    def _protocol_send_raw(self, name, headers="", body=""):
         if self._writer is not None:
             future = asyncio.Future()
             time_future = asyncio.ensure_future(self._check_timeout(future))
-            self._write("%s %s" % (name, args))
+            headers = "%s %s" % (name, headers)
+
+            if body != "":
+                headers += LINE_DELIMITER
+                headers += "Content-Length: %s" % len(body.encode())
+                headers += CMD_DELIMITER
+                body += LINE_DELIMITER
+
+            ev = (headers + body + CMD_DELIMITER)  # ev is encoded
+            # aioesl_log.debug("======\n%s========" % ev)
+
+            self._write(ev.encode())
             self._ev_queue.append((name, future, time_future))
 
             return future
         else:
-            return self.err_response("ESL not status to %s cmd %s %s" % (self.ip, name, args))
+            return self.err_response("ESL not status to %s cmd %s %s" % (self.ip, name, headers))
 
     # CONTENT TYPE PROCESSING
 
@@ -260,17 +272,28 @@ class ESLCommands(LogBase):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#api"
         return self._protocol_send("api", args)
 
-    def sendevent(self, name, args=dict(), body=None):
+    def sendevent(self, name, args=None, body=None):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#sendevent"
+        if args is None:
+            args = dict()
+
         parsed_args = [name]
-        for k, v in args.iteritems():
+        for k, v in args.items():
             parsed_args.append('%s: %s' % (k, v))
-        parsed_args.append('')
-        if body:
-            parsed_args.append(body)
+
+        if body is None:
+            parsed_body = None
         else:
-            parsed_args.append('')
-        return self._protocol_send_raw("sendevent", '\n'.join(parsed_args))
+            parsed_body = []
+            if isinstance(body, dict):
+                for k, v in body.items():
+                    parsed_body.append('%s: %s' % (k, v))
+            else:
+                parsed_body = "%s"
+
+        return self._protocol_send_raw(name="sendevent",
+                                       headers='\n'.join(parsed_args),
+                                       body='\n'.join(parsed_body))
 
     def bgapi(self, args):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#bgapi"
