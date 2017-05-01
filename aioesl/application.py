@@ -78,8 +78,9 @@ class Client(SessionBase):
 
     def shutdown(self):
 
-        def ok():
+        def ok(_):
             self.li("Подключение выключено.")
+
         self._closing = True
         ex = asyncio.ensure_future(self.exit())
         cp = asyncio.ensure_future(self._close_handler())

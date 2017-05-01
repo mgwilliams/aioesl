@@ -63,7 +63,7 @@ class ESLCommands(LogBase):
 
     async def _check_timeout(self, f):
         await asyncio.sleep(self._timeout)
-        if f.done():
+        if f.done() or self.closing:
             return
         else:
             try:
@@ -124,8 +124,11 @@ class ESLCommands(LogBase):
             cmd.extend(["execute-app-name: %s" % name, LINE_DELIMITER])
             if args:
                 cmd.extend(["execute-app-arg: %s" % args, LINE_DELIMITER])
+
             if lock:
                 cmd.extend(["event-lock: true", LINE_DELIMITER])
+                # cmd.extend(["async: false", LINE_DELIMITER])
+
             asyncio.ensure_future(self._writeln(ln=cmd))
             self._ev_queue.append((name, future, time_future))
             return future
@@ -563,12 +566,12 @@ class ESLCommands(LogBase):
         """
         return self._protocol_send_msg("endless_playback", filename, lock=True)
 
-    def execute(self, command, args):
+    def execute(self, command, args, uuid=""):
         """Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Library#execute
 
         >>> execute('voicemail', 'default $${domain} 1000')
         """
-        return self._protocol_send_msg(command, args, lock=True)
+        return self._protocol_send_msg(command, args, uuid=uuid, lock=True)
 
     def play_and_get_digits(self, args):
         """Please refer to https://freeswitch.org/confluence/display/FREESWITCH/mod_dptools%3A+play+and+get+digits
