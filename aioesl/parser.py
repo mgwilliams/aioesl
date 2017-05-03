@@ -18,15 +18,19 @@ class EventParser:
         self.last_line = [1, 2]
         self._ev = {}
         self.dispatch_event_cb = kwargs.get("dispatch_event_cb")
+        self.peername = None
 
     def set_reader(self, reader):
         self._reader = reader
 
     async def read_from_connection(self):
+        if self._reader is not None:
+            self.peername = self._reader._transport.get_extra_info('peername')
+
         while self._reader is not None and not self._reader.at_eof():
             try:
-                # print(self._reader._transport, "parser 22", str(self._reader.__dict__))
                 line = await self._reader.readline()
+                # aioesl_log.debug(line)
                 self.last_line = [self.last_line[-1], line]
                 if line == b"\n" and self._ev != {}:
                     self.dispatch_event()
@@ -56,16 +60,16 @@ class EventParser:
 
             except SocketError as e:
                 if e.errno != errno.ECONNRESET:
-                    aioesl_log.exception("read_from_connection SocketError")
+                    aioesl_log.error("read_from_connection SocketError")
                     self._reader.feed_eof()
                 else:
-                    aioesl_log.exception("SocketError Разрыв соединения")
+                    aioesl_log.error("SocketError Разрыв соединения")
                     self._reader.feed_eof()
                 # res = self._reader.feed_eof()
                 # if asyncio.coroutines.iscoroutine(res):
                 #     await res
             except CancelledError:
-                aioesl_log.debug("Close connection %s!" % self._reader._transport.get_extra_info('peername'))
+                aioesl_log.debug("Close connection %s!" % str(self.peername))
                 # self._reader._waiter.cancel()
                 self._reader.feed_eof()
             except:

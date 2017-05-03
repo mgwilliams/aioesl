@@ -21,6 +21,7 @@ class ESLCommands(LogBase):
         self.event_handler_log = kwargs.get("event_handler_log", False)
         self._closing = False
         self._close = False
+        self.uuid = None
 
         self._timeout = 300 # Ожидаем ответа от клиента/сервера 5 минут. Потом убиваем соединение.
 
@@ -85,11 +86,11 @@ class ESLCommands(LogBase):
                 await self._close_handler(ev={})
                 return
             ln.append(CMD_DELIMITER)
-            out = [s.encode() for s in ln]
-
+            out = b"".join([s.encode() for s in ln])
+            # self.li("-----------\n%s----------" % out.decode())
             try:
-                # self.li(out)
-                self._writer.writelines(out)
+                # self.ld(out)
+                self._write(out)
                 await self._writer.drain()
             except:
                 aioesl_log.exception("_writeln  1")
@@ -114,21 +115,21 @@ class ESLCommands(LogBase):
             else:
                 return self.err_response("ESL not connected to %s cmd %s %s" % (self.peer, name, args))
 
-    def _protocol_send_msg(self, name, args=None, uuid="", lock=False):
+    def _protocol_send_msg(self, name, args=None, uuid=None, lock=False):
         if self._writer is not None:
+            uuid = uuid or self.uuid or ""
             future = asyncio.Future()
             time_future = asyncio.ensure_future(self._check_timeout(future))
-            cmd = list()
-            cmd.extend(["sendmsg %s" % uuid, LINE_DELIMITER])
-            cmd.extend(["call-command: execute", LINE_DELIMITER])
-            cmd.extend(["execute-app-name: %s" % name, LINE_DELIMITER])
+            cmd = ["SendMsg %s" % uuid, LINE_DELIMITER,
+                   "call-command: execute", LINE_DELIMITER,
+                   "execute-app-name: %s" % name,
+                   ]
             if args:
-                cmd.extend(["execute-app-arg: %s" % args, LINE_DELIMITER])
-
+                cmd.extend([LINE_DELIMITER, "execute-app-arg: %s" % args])
             if lock:
-                cmd.extend(["event-lock: true", LINE_DELIMITER])
-                # cmd.extend(["async: false", LINE_DELIMITER])
+                cmd.extend([LINE_DELIMITER, "event-lock: true"])
 
+            # self.ld(cmd)
             asyncio.ensure_future(self._writeln(ln=cmd))
             self._ev_queue.append((name, future, time_future))
             return future
@@ -212,18 +213,25 @@ class ESLCommands(LogBase):
             aioesl_log.error("apiResponse on '%s': out of sync?" % cmd)
 
     async def _command_reply(self, ev):
-        cmd, future, time_future = self._ev_queue.popleft()
-        time_future.cancel()
-        if ev.get("Reply-Text").startswith("+OK"):
-            future.set_result(ev)
+        try:
+            cmd, future, time_future = self._ev_queue.popleft()
+            ev["app-name"] = cmd
+            time_future.cancel()
+            # if ev.get('Reply-Text') == "+OK":
+            #     pass
 
-        elif ev.get("Reply-Text").startswith("-ERR"):
-            future.set_result(ev)
+            if ev.get("Reply-Text").startswith("+OK"):
+                future.set_result(ev)
 
-        elif cmd == "auth":
-            aioesl_log.error("password error")
-        else:
-            pass
+            elif ev.get("Reply-Text").startswith("-ERR"):
+                future.set_result(ev)
+
+            elif cmd == "auth":
+                aioesl_log.error("password error")
+            else:
+                pass
+        except:
+            aioesl_log.exception(ev)
 
     async def _text_event_plain(self, ev):
         name = ev.get("Event-Name")
@@ -337,9 +345,10 @@ class ESLCommands(LogBase):
         """
         return self._protocol_send_msg('verbose_events', lock=True)
 
-    def myevents(self):
+    def myevents(self, uuid=None, msg_type="plain"):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#event"
-        return self._protocol_send("myevents")
+        uuid = uuid or self.uuid or ""
+        return self._protocol_send("myevents", "%s %s" % (msg_type, uuid))
 
     def answer(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
@@ -390,7 +399,8 @@ class ESLCommands(LogBase):
 
         >>> read("0 10 $${base_dir}/sounds/en/us/callie/conference/8000/conf-pin.wav res 10000 #")
         """
-        return self._protocol_send_msg("read", args, lock=True)
+        # asyncio.ensure_future(self.set("read_terminator_used=''", lock=False))
+        return self._protocol_send_msg("read", args, lock=False)
 
     def bind_meta_app(self, args):
         """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_bind_meta_app
@@ -429,12 +439,12 @@ class ESLCommands(LogBase):
         """
         return self._protocol_send_msg("vmd", args, lock=True)
 
-    def set(self, args):
+    def set(self, args, lock=True):
         """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_set
 
         >>> set("ringback=${us-ring}")
         """
-        return self._protocol_send_msg("set", args, lock=True)
+        return self._protocol_send_msg("set", args, lock=lock)
 
     def set_global(self, args):
         """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_set_global
