@@ -23,6 +23,7 @@ class Client(SessionBase):
 
         self._cur_retry = 0
         self.cb_on_connected = kwargs.get("cb_on_connected")
+        self.cb_on_disconnect = kwargs.get("cb_on_disconnect")
 
     async def open_connection(self):
         if self._reader is not None:
@@ -45,7 +46,10 @@ class Client(SessionBase):
 
             await self.ready()
             if self.cb_on_connected is not None:
-                asyncio.ensure_future(self.cb_on_connected)
+                cb = self.cb_on_connected()
+                if asyncio.iscoroutine(cb):
+                    await cb
+
         except OSError as err:
             self.le("Ошибка установки подлючения OSError %s." % err.errno)
             asyncio.ensure_future(self.reconnect())
@@ -60,8 +64,14 @@ class Client(SessionBase):
 
         if self in list_outbounds:
             list_outbounds.remove(self)
+
         if self.debug:
             self.log_debug("Удалил из списка подключений %s" % str(self))
+
+        if self.cb_on_disconnect is not None:
+            cb = self.cb_on_disconnect()
+            if asyncio.iscoroutine(cb):
+                await cb
 
     async def reconnect(self):
         if self._reconnect:

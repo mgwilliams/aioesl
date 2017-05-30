@@ -181,7 +181,6 @@ class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
                 self._loop.create_task(res)
 
     def connection_lost(self, exc):
-        # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>connection_lost", exc, self._stream_reader._eof)
         if exc is None:
             self._stream_reader.feed_eof()
         else:
@@ -196,7 +195,6 @@ class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
         self._stream_reader.feed_data(data)
 
     def eof_received(self):
-        # print(">>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>eof_received")
         self._stream_reader.feed_eof()
         return True
 

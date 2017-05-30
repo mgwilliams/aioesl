@@ -101,7 +101,6 @@ class ESLCommands(LogBase):
 
     def _write(self, data):
         # self.li(data)
-        # self.li(type(data))
         self._writer.write(data)
 
     def _protocol_send(self, name, args=""):
@@ -250,7 +249,9 @@ class ESLCommands(LogBase):
             aioesl_log.error("Не могу получить метод.")
 
     async def _text_disconnect_notice(self, ev):
+        # self.li("_text_disconnect_notice %s" % ev)
         self.log_debug(ev.get("DataResponse", "Error!!!").replace("\n", " "))
+        self._closing = True
         res = self._close_handler(ev={})
         if asyncio.coroutines.iscoroutine(res):
             await res

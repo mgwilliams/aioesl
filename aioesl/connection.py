@@ -12,11 +12,17 @@ class SessionBase(ESLCommands):
         self._reader = kwargs.get("reader")
         self._data_reader = None
         self._connect_waiter = asyncio.Future()
-        self._parser = EventParser(reader=self._reader, dispatch_event_cb=self.dispatch_event)
         self._closing = False
+        self._parser = EventParser(reader=self._reader,
+                                   dispatch_event_cb=self.dispatch_event,
+                                   make_close=self._close_handler,
+                                   closing_flag=self.closing_check)
         super().__init__(loop, **kwargs)
         if self._writer is not None:
             self._host, self._port = self._writer.transport.get_extra_info('peername')
+
+    def closing_check(self):
+        return self.closing
 
     @property
     def host(self):
@@ -52,3 +58,6 @@ class SessionBase(ESLCommands):
         self.reset()
         if self.debug:
             self.li("Connection closed.")
+
+    # async def close_connection(self):
+    #     await self._close_handler(None)

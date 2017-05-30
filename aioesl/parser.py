@@ -1,4 +1,5 @@
 import asyncio
+import uuid
 import errno
 from socket import error as SocketError
 from urllib.parse import unquote
@@ -7,17 +8,19 @@ from .log import aioesl_log
 import traceback
 import sys
 
-
 from concurrent.futures._base import CancelledError
 
 
 class EventParser:
 
     def __init__(self, **kwargs):
+        self._connection_uuid = str(uuid.uuid4())
         self._reader = kwargs.get("reader")
         self.last_line = [1, 2]
         self._ev = {}
         self.dispatch_event_cb = kwargs.get("dispatch_event_cb")
+        self.make_close = kwargs.get("make_close")
+        self.closing_flag = kwargs.get("closing_flag")
         self.peername = None
 
     def set_reader(self, reader):
@@ -30,7 +33,13 @@ class EventParser:
         while self._reader is not None and not self._reader.at_eof():
             try:
                 line = await self._reader.readline()
-                # aioesl_log.debug(line)
+                # aioesl_log.debug("%s %s %s" % (self._connection_uuid, self.peername, line))
+
+                if line == b'' and not self.closing_flag():
+                    aioesl_log.error("NULLDATA read_from_connection %s" % self.closing_flag)
+                    await self.make_close(ev={})
+                    break
+
                 self.last_line = [self.last_line[-1], line]
                 if line == b"\n" and self._ev != {}:
                     self.dispatch_event()
