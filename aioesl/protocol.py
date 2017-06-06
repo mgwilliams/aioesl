@@ -27,7 +27,7 @@ class ESLCommands(LogBase):
 
     def set_handler(self, event, handler):
         assert isinstance(event, str), "event mast be str type."
-        event = event.split(" ")[0]
+        event = str(event.split(" ")[0]).upper()
         self.event_handlers[event] = handler
 
     def pop_handler(self, event):
@@ -236,15 +236,19 @@ class ESLCommands(LogBase):
         name = ev.get("Event-Name")
         if name is not None:
             if name in self.event_handlers.keys():
-                try:
-                    res = self.event_handlers[name](self, ev)
-                    if asyncio.iscoroutine(res):
-                        await res
-                except Exception as error:
-                    aioesl_log.exception(error)
+                method = self.event_handlers[name]
+            elif "ALL" in self.event_handlers.keys():
+                method = self.event_handlers["ALL"]
             else:
                 if self.event_handler_log:
                     aioesl_log.error("Handler for %s not set" % name)
+                return
+            try:
+                m = method(self, ev)
+                if asyncio.iscoroutine(m):
+                    await m
+            except Exception as error:
+                aioesl_log.exception(error)
         else:
             aioesl_log.error("Не могу получить метод.")
 
@@ -273,8 +277,11 @@ class ESLCommands(LogBase):
 
     def event(self, args):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#event"
-        # return self._protocol_send_msg("event", args, lock=True)
         return self._protocol_send('event', args)
+
+    def noevents(self, args):
+        "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#noevents"
+        return self._protocol_send('noevents', args)
 
     def connect(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
@@ -610,3 +617,10 @@ class ESLCommands(LogBase):
             _ += ', "data": %s' % json.dumps(data)
 
         return self.api('json {%s}' % _)
+
+    def callcenter(self, args, lock=True):
+        """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools_set
+
+        >>> callcenter("queue_name")
+        """
+        return self._protocol_send_msg("callcenter", args, lock=lock)
