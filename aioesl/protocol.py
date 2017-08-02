@@ -279,9 +279,9 @@ class ESLCommands(LogBase):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#event"
         return self._protocol_send('event', args)
 
-    def noevents(self, args):
+    def noevents(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket#noevents"
-        return self._protocol_send('noevents', args)
+        return self._protocol_send('noevents', [])
 
     def connect(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
