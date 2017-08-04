@@ -166,6 +166,11 @@ class ESLCommands(LogBase):
         aioesl_log.error(text)
         future = asyncio.Future()
         future.set_result({'Content-Type': 'Error/response', 'ErrorResponse': text})
+        # if self._writer is None:
+        #     res = self._close_handler(ev={})
+        #     if asyncio.coroutines.iscoroutine(res):
+        #         asyncio.ensure_future(res)
+
         return future
 
     def dispatch_event(self, ev):

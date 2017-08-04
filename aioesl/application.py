@@ -54,6 +54,10 @@ class Client(SessionBase):
             self.le("Ошибка установки подлючения OSError %s." % err.errno)
             asyncio.ensure_future(self.reconnect())
 
+        except:
+            self.log_exc("open_connection")
+            asyncio.ensure_future(self.reconnect())
+
     async def _close_handler(self, **kwargs):
         await super()._close_handler(**kwargs)
         if self._data_reader is not None:
