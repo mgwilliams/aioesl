@@ -68,6 +68,7 @@ class EventParser:
                         self._ev.update(ev_attr)
 
             except SocketError as e:
+                aioesl_log.exception("read_from_connection")
                 if e.errno != errno.ECONNRESET:
                     aioesl_log.error("read_from_connection SocketError")
                     self._reader.feed_eof()
@@ -78,6 +79,7 @@ class EventParser:
                 # if asyncio.coroutines.iscoroutine(res):
                 #     await res
             except CancelledError:
+                aioesl_log.exception("read_from_connection")
                 aioesl_log.debug("Close connection %s!" % str(self.peername))
                 # self._reader._waiter.cancel()
                 self._reader.feed_eof()

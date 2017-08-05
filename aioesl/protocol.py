@@ -252,8 +252,8 @@ class ESLCommands(LogBase):
                 m = method(self, ev)
                 if asyncio.iscoroutine(m):
                     await m
-            except Exception as error:
-                aioesl_log.exception(error)
+            except:
+                aioesl_log.exception("_text_event_plain")
         else:
             aioesl_log.error("Не могу получить метод.")
 
