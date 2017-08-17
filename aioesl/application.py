@@ -30,21 +30,20 @@ class Client(SessionBase):
             raise "Reader is started!"
 
         try:
-            if self.debug:
-                self.li("Connecting. %s retry." % self._cur_retry)
+            self.ld("Новое исходящее подключение %s. Попытка %s" % (str(self), self._cur_retry))
             self._reader, self._writer = await open_connection(self._host, self._port, loop=self._loop)
             self._parser.set_reader(self._reader)
             self.set_writer(self._writer)
             self._data_reader = asyncio.ensure_future(self._parser.read_from_connection())
 
             list_outbounds.append(self)
-            if self.debug:
-                self.log_debug("Добавил в список подключений %s" % str(self))
+            self.ld("Добавил в список подключений %s" % str(self))
 
             if self.password is None:
                 self.set_connect_waiter(True)
 
             await self.ready()
+
             if self.cb_on_connected is not None:
                 cb = self.cb_on_connected()
                 if asyncio.iscoroutine(cb):
@@ -60,17 +59,22 @@ class Client(SessionBase):
 
     async def _close_handler(self, **kwargs):
         await super()._close_handler(**kwargs)
+        if not self._closing and not self._reconnect:
+            self._closing = True
+
         if self._data_reader is not None:
             self._data_reader.cancel()
 
         if kwargs.get("status") != "AuthFailed" and not self._closing:
+            self.li("Переподключаем ESL соединение")
             await self.reconnect()
+        else:
+            self.ld("self._closing = %s" % self._closing)
 
         if self in list_outbounds:
             list_outbounds.remove(self)
 
-        if self.debug:
-            self.log_debug("Удалил из списка подключений %s" % str(self))
+        self.ld("Удаляю исходящее подключение %s" % str(self))
 
         if self.cb_on_disconnect is not None:
             cb = self.cb_on_disconnect()
@@ -81,7 +85,7 @@ class Client(SessionBase):
         if self._reconnect:
             self._cur_retry += 1
             if self._retries == 0 or self._retries >= self._cur_retry:
-                self.li("Reconnecting at %s" % self._retry_sleep)
+                self.li("Следующая попытка подключения через %s секунд" % self._retry_sleep)
                 self._closing = False
                 self._connect_waiter = asyncio.Future()
                 await asyncio.sleep(self._retry_sleep)
@@ -95,6 +99,7 @@ class Client(SessionBase):
         def ok(_):
             self.li("Подключение выключено.")
 
+        self.ld("shutdown RUN!")
         self._closing = True
         ex = asyncio.ensure_future(self.exit())
         cp = asyncio.ensure_future(self._close_handler())
@@ -136,6 +141,7 @@ class Server:
         self.sessions.append(session)
         try:
             await session.start(session_connected_cb=self._session_connected_cb)
+            session.ld("Входящее подключение")
         except GeneratorExit:
             aioesl_log.error("Завершаю работу подключения c ошибкой GeneratorExit")
         except Exception as error:
@@ -146,11 +152,14 @@ class Server:
     def destroy_session(self, session):
         if session in self.sessions:
             self.sessions.remove(session)
+            session.ld("Завершена сервераная сессия")
+            if not session.closed:
+                asyncio.ensure_future(session.exit())
 
-        if self._session_destroy_cb is not None:
-            cb = self._session_destroy_cb(self)
-            if asyncio.iscoroutine(cb):
-                asyncio.ensure_future(cb)
+            if self._session_destroy_cb is not None:
+                cb = self._session_destroy_cb(session)
+                if asyncio.iscoroutine(cb):
+                    asyncio.ensure_future(cb)
 
 
 class Session(SessionBase):

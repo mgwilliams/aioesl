@@ -56,8 +56,9 @@ class SessionBase(ESLCommands):
         self._data_reader = None
         self._parser.set_reader(self._reader)
         self.reset()
-        if self.debug:
-            self.li("Connection closed.")
+        self.ld("Закрываю соединение %s." % self)
 
     # async def close_connection(self):
     #     await self._close_handler(None)
+
+

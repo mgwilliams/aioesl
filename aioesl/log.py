@@ -6,7 +6,8 @@ aioesl_log = logging.getLogger("aioesl")
 class LogBase:
 
     def __init__(self, *args, **kwargs):
-        self.debug = kwargs.get("debug", False)
+        # self.debug = kwargs.get("debug", False)
+        pass
 
     @property
     def peer(self):
@@ -23,10 +24,6 @@ class LogBase:
 
     def ld(self, m):
         aioesl_log.debug("[{host}] {msg}".format(host=self.peer, msg=m))
-
-    def log_debug(self, m):
-        if self.debug:
-            aioesl_log.debug("[{host}] {msg}".format(host=self.peer, msg=m))
 
     def log_exc(self, m):
         aioesl_log.exception("[{host}] {msg}".format(host=self.peer, msg=m))

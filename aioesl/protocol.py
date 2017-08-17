@@ -112,6 +112,7 @@ class ESLCommands(LogBase):
                 self._ev_queue.append((name, future, time_future))
                 return future
             else:
+                # asyncio.ensure_future(self._close_handler(ev={}))
                 return self.err_response("ESL not connected to %s cmd %s %s" % (self.peer, name, args))
 
     def _protocol_send_msg(self, name, args=None, uuid=None, lock=False):
@@ -133,7 +134,8 @@ class ESLCommands(LogBase):
             self._ev_queue.append((name, future, time_future))
             return future
         else:
-            return self.err_response("ESL not status to %s cmd %s %s" % (self.peer, name, args))
+            # asyncio.ensure_future(self._close_handler(ev={}))
+            return self.err_response("ESL not connected to %s cmd %s %s" % (self.peer, name, args))
 
     def _protocol_send_raw(self, name, headers="", body=""):
         if self._writer is not None:
@@ -155,7 +157,8 @@ class ESLCommands(LogBase):
 
             return future
         else:
-            return self.err_response("ESL not status to %s cmd %s %s" % (self.ip, name, headers))
+            # asyncio.ensure_future(self._close_handler(ev={}))
+            return self.err_response("ESL not connected to %s cmd %s %s" % (self.ip, name, headers))
 
     # CONTENT TYPE PROCESSING
 
@@ -259,8 +262,7 @@ class ESLCommands(LogBase):
 
     async def _text_disconnect_notice(self, ev):
         # self.li("_text_disconnect_notice %s" % ev)
-        self.log_debug(ev.get("DataResponse", "Error!!!").replace("\n", " "))
-        self._closing = True
+        # self.log_debug(ev.get("DataResponse", "Error!!!").replace("\n", " "))
         res = self._close_handler(ev={})
         if asyncio.coroutines.iscoroutine(res):
             await res
@@ -605,6 +607,13 @@ class ESLCommands(LogBase):
 
     def displace_session(self, params):
         return self._protocol_send_msg("displace_session", params, lock=True)
+
+    def bridge_export(self, args, lock=True):
+        """Please refer to http://wiki.freeswitch.org/wiki/Misc._Dialplan_Tools
+
+        >>> bridge_export("aaa=123")
+        """
+        return self._protocol_send_msg("bridge_export", args, lock=lock)
 
 
     # shortcats
