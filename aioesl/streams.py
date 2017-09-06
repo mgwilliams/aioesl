@@ -155,6 +155,10 @@ class ESLFlowControlMixin(asyncio.protocols.Protocol):
         self._drain_waiter = waiter
         yield from waiter
 
+    # @property
+    # def connection_is_lost(self):
+    #     return self._connection_lost
+
 
 class ESLStreamReaderProtocol(ESLFlowControlMixin, asyncio.protocols.Protocol):
     """Helper class to adapt between Protocol and StreamReader.
@@ -336,7 +340,6 @@ class ESLStreamReader:
             self._transport.resume_reading()
 
     def feed_eof(self):
-        # print(">>>>>>>><>>>>>>>>>>>>>>>>>>feed_eof" )
         self._eof = True
         self._wakeup_waiter()
 
@@ -391,13 +394,7 @@ class ESLStreamReader:
 
         line = bytearray()
         not_enough = True
-        # _c = 1
         while not_enough:
-            # print("stream 394")
-            # _c +=1
-            # if _c > 100:
-            #     break
-
             while self._buffer and not_enough:
                 ichar = self._buffer.find(b'\n')
                 # print("stream 397")
