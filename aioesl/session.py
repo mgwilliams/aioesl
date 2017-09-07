@@ -11,24 +11,24 @@ from functools import wraps
 def safe_send(timeout=None):
     def _safe_send(func):
         def _decorator(self, *args, **kwargs):
-            if self.writer is None or self.writer.transport is None or self.writer.transport._conn_lost:
+            if self.writer is None \
+                    or self.writer.transport is None \
+                    or self.writer.transport._conn_lost:
                 if self.direction == SESSION_DIRECTION_INBOUND:
                     response = self.err_response("Client close connection %s cmd: %s %s" % (self.peer, args[0], args))
                 else:
                     async def aa():
-                        await asyncio.sleep(1)
-                        self.ld(func)
                         if self.status in [SESSION_STATUS_CLOSED, SESSION_STATUS_CLOSING]:
-                            # self.li("!!!!!!!!!!!!!")
                             return self.err_response("!!! ESL closed to %s cmd: %s %s" % (self.peer, args[0], args))
                         else:
                             await self.ready
                             return await func(self, *args, **kwargs)
-
-                    # response = self.err_response("!!! ESL not connected to %s cmd: %s %s" % (self.peer, args[0], args))
                     response = aa()
-            else:
+            elif self.connected or self.status == SESSION_STATUS_NEW:
+                # self.li(("_decorator", self.connected, self.status))
                 response = func(self, *args, **kwargs)
+            else:
+                return self.err_response("!!! ESL closed to %s cmd: %s %s" % (self.peer, args[0], args))
             return response
         return wraps(func)(_decorator)
     return _safe_send
@@ -72,6 +72,10 @@ class Session(LogBase):
         if kwargs.get("auth"):
             self.ready.set_result(True)
 
+    @property
+    def connected(self):
+        return True if self.status == SESSION_STATUS_CONNECTED else False
+
     async def close_handler(self, **kwargs):
         if self.status not in [SESSION_STATUS_CLOSED, SESSION_STATUS_CLOSING]:
             self.status = SESSION_STATUS_CLOSING
@@ -105,12 +109,6 @@ class Session(LogBase):
         if f.done():
             return
         elif self.status in [SESSION_STATUS_CLOSED, SESSION_STATUS_CLOSING]:
-            # f.set_result({})
-            # if m is not None:
-            #     await m
-            # else:
-            #     return None
-            # return
             return
         else:
             try:
@@ -125,25 +123,30 @@ class Session(LogBase):
             if asyncio.coroutines.iscoroutine(res):
                 await res
 
-    async def writeln(self, ln=[]):
-        out = None
+    def writeln(self, ln=[]):
         try:
             ln.append(CMD_DELIMITER)
             out = b"".join([s.encode() for s in ln])
-            # self.li("-----------\n%s----------" % out.decode())
             try:
-                # self.ld(out)
-                self.write(out)
-                await self.writer.drain()
+                if self.writer is not None:
+                    self.write(out)
+                    # asyncio.ensure_future(self.writer.drain())
+                    return True
+                else:
+                    asyncio.ensure_future(self.close_handler(ev={}))
+                    return False
             except:
-                aioesl_log.exception("_writeln  %s" % out)
-                await self.close_handler(ev={})
+                self.log_exc("_writeln %s" % out)
+                asyncio.ensure_future(self.close_handler(ev={}))
+                return False
         except:
-            aioesl_log.exception("_writeln  2")
-            await self.close_handler(ev={})
+            self.log_exc("_writeln  2")
+            asyncio.ensure_future(self.close_handler(ev={}))
+            return False
 
     def write(self, data):
-        # self.li(data)
+        # self.li(("write", self.connected, self.status))
+        self.ld5(("write", data))
         self.writer.write(data)
 
     @safe_send(timeout=30)
@@ -151,10 +154,10 @@ class Session(LogBase):
         cmd = "%s %s" % (name, args)
         future = asyncio.Future()
         time_future = asyncio.ensure_future(self.check_timeout(future))
-        asyncio.ensure_future(self.writeln(ln=[cmd]))
-        self.ev_queue.append((name, future, time_future))
-        # self.li(cmd)
-        return future
+        if self.writeln(ln=[cmd]):
+            self.ev_queue.append((name, future, time_future))
+            return future
+        return self.err_response("Writer is closed")
 
     @safe_send(timeout=30)
     def protocol_send_msg(self, name, args=None, uuid=None, lock=False):
@@ -170,10 +173,10 @@ class Session(LogBase):
         if lock:
             cmd.extend([LINE_DELIMITER, "event-lock: true"])
 
-        # self.ld(cmd)
-        asyncio.ensure_future(self.writeln(ln=cmd))
-        self.ev_queue.append((name, future, time_future))
-        return future
+        if self.writeln(ln=cmd):
+            self.ev_queue.append((name, future, time_future))
+            return future
+        return self.err_response("Writer is closed")
 
     @safe_send(timeout=30)
     def protocol_send_raw(self, name, headers="", body=""):
@@ -188,12 +191,11 @@ class Session(LogBase):
             body += LINE_DELIMITER
 
         ev = (headers + body + CMD_DELIMITER)  # ev is encoded
-        # aioesl_log.debug("======\n%s========" % ev)
-
-        self.write(ev.encode())
-        self.ev_queue.append((name, future, time_future))
-
-        return future
+        if self.writer is not None:
+            self.write(ev.encode())
+            self.ev_queue.append((name, future, time_future))
+            return future
+        return self.err_response("Writer is closed")
 
     # CONTENT TYPE PROCESSING
 
@@ -201,15 +203,11 @@ class Session(LogBase):
         self.le("Unknown context type %s" % ct)
 
     def err_response(self, text):
-        aioesl_log.error(text)
-        future = asyncio.Future()
-        future.set_result({'Content-Type': 'Error/response', 'ErrorResponse': text})
-        # if self.writer is None:
-        #     res = self.close_handler(ev={})
-        #     if asyncio.coroutines.iscoroutine(res):
-        #         asyncio.ensure_future(res)
-
-        return future
+        self.lw(text)
+        f = asyncio.Future()
+        f.set_result({'Content-Type': 'Error/response', 'ErrorResponse': text})
+        return f
+        # return {'Content-Type': 'Error/response', 'ErrorResponse': text}
 
     def dispatch_event(self, ev):
         # self.ld(ev)
@@ -228,6 +226,7 @@ class Session(LogBase):
             return self.unknown_content_type(method_name, ev)
 
     async def text_rude_rejection(self, ev):
+        self.ld5(("text_rude_rejection", ev))
         if ev.get("DataResponse") == "Access Denied, go away.\n":
             self.lw(ev.get("DataResponse"))
             await self.close_handler(ev=ev)
@@ -235,7 +234,7 @@ class Session(LogBase):
             aioesl_log.info(str(ev))
 
     async def auth_request(self, ev):
-        # self.ld(ev)
+        self.ld5(("auth_request", ev))
         if self.password is None:
             self.le("Server auth required, but password not set.")
             self.status = SESSION_STATUS_CLOSING
@@ -243,7 +242,7 @@ class Session(LogBase):
             return
 
         res = await self.auth()
-        # self.li(res)
+        self.ld5(("auth_request RES", res))
         if isinstance(res, dict) and res.get("Reply-Text") == "+OK accepted":
             await self.open_handler(auth=True)
             self.status = SESSION_STATUS_CONNECTED
@@ -253,6 +252,7 @@ class Session(LogBase):
             await self.open_handler(auth=False)
 
     async def api_response(self, ev):
+        self.ld5(("api_response", ev))
         cmd, future, time_future = self.ev_queue.popleft()
         time_future.cancel()
         if cmd == "api":
@@ -261,7 +261,7 @@ class Session(LogBase):
             aioesl_log.error("apiResponse on '%s': out of sync?" % cmd)
 
     async def command_reply(self, ev):
-
+        self.ld5(("command_reply", ev))
         try:
             cmd, future, time_future = self.ev_queue.popleft()
             ev["app-name"] = cmd
@@ -283,7 +283,7 @@ class Session(LogBase):
             aioesl_log.exception(ev)
 
     async def text_event_plain(self, ev):
-
+        self.ld5(("text_event_plain", ev))
         name = ev.get("Event-Name")
         if name is not None:
             if name in self.event_handlers.keys():
@@ -305,7 +305,7 @@ class Session(LogBase):
             aioesl_log.error("Не могу получить метод.")
 
     async def text_disconnect_notice(self, ev):
-        # self.ld(("text_disconnect_notice", ev))
+        self.ld5(("text_disconnect_notice", ev))
         await self.close_handler(ev={})
 
     async def rude_rejection(self, ev):
@@ -332,6 +332,9 @@ class Session(LogBase):
 
     def connect(self):
         "Please refer to http://wiki.freeswitch.org/wiki/Event_Socket_Outbound#Using_Netcat"
+        self.status = SESSION_STATUS_CONNECTED
+        if not self.ready.done() and not self.ready.cancelled():
+            self.ready.set_result("OK")
         return self.protocol_send("connect")
 
     def api(self, args):

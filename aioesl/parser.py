@@ -21,7 +21,7 @@ class EventParser:
         self.ev = {}
         self.session = kwargs.get("session")
         self.peername = None
-        self.readline_process = None
+        # self.readline_process = None
 
     def set_reader(self, reader):
         self.reader = reader

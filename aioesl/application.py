@@ -9,19 +9,6 @@ list_outbounds = []
 list_inbound = []
 
 
-# def list_connection(direction=None, host=None):
-#     out = []
-#     for session in list_outbounds + list_inbound:
-#         if not (session.direction is None or session.direction == direction):
-#             continue
-#
-#         if not (session.host is None or session.host in host.get_ips()):
-#             continue
-#         out.append(session)
-#     return out
-#
-
-
 class OutboundSession(Session):
 
     def __init__(self, loop, **kwargs):
@@ -109,6 +96,7 @@ class OutboundSession(Session):
             if asyncio.iscoroutine(cb):
                 await cb
 
+
     async def reconnection(self):
         self.cur_retry += 1
         self.ready = asyncio.Future()
@@ -117,17 +105,17 @@ class OutboundSession(Session):
         await asyncio.sleep(self.retry_sleep)
         await self.open_connection()
 
-    def shutdown(self):
-
-        def ok(_):
-            self.ld3("Подключение выключено.")
-
-        self.ld("shutdown RUN!")
-        self.closing = True
-        ex = asyncio.ensure_future(self.exit())
-        cp = asyncio.ensure_future(self.close_handler())
-        cp.add_done_callback(ok)
-        ex.add_done_callback(self.close_handler)
+    # def shutdown(self):
+    #
+    #     def ok(_):
+    #         self.ld3("Подключение выключено.")
+    #
+    #     self.ld("shutdown RUN!")
+    #     self.closing = True
+    #     ex = asyncio.ensure_future(self.exit())
+    #     cp = asyncio.ensure_future(self.close_handler())
+    #     cp.add_done_callback(ok)
+    #     ex.add_done_callback(self.close_handler)
 
 
 class Server:
@@ -167,26 +155,31 @@ class Server:
                                        port=port)
         self.sessions.append(session)
         try:
-            await session.start(session_connected_cb=self.session_connected_cb)
             session.ld3("Входящее подключение")
+            await session.start(session_connected_cb=self.session_connected_cb)
         except GeneratorExit:
             aioesl_log.error("Завершаю работу подключения c ошибкой GeneratorExit")
         except Exception as error:
             aioesl_log.exception(error)
         finally:
-            self.destroy_session(session)
+            session.ld("Текущий статус активна %s" % session.connected)
 
-    def destroy_session(self, session):
+            if session.connected:
+                await session.exit()
+
+            await session.close_handler()
+            await self.destroy_session(session)
+
+    async def destroy_session(self, session):
         if session in self.sessions:
-            self.sessions.remove(session)
-            session.ld3("Завершена сервераная сессия")
-            if session.status in [SESSION_STATUS_CONNECTED]:
-                asyncio.ensure_future(session.exit())
-
+            session = self.sessions.remove(session)
             if self.session_destroy_cb is not None:
                 cb = self.session_destroy_cb(session)
                 if asyncio.iscoroutine(cb):
                     asyncio.ensure_future(cb)
+            if session is not None:
+                session.ld3("Завершена сервераная сессия")
+                del session
 
 
 class InboundSession(Session):
@@ -202,13 +195,9 @@ class InboundSession(Session):
         self.data_reader = asyncio.ensure_future(self.parser.read_from_connection())
         self.ld3("Новое входящее подключение %s." % str(self))
         res = await self.connect()
+        self.ld3("Текущее состояние подключения: %s" % self.status)
         if session_connected_cb is not None:
             cb = session_connected_cb(self, res)
             if asyncio.iscoroutine(cb):
                 await cb
-
-    async def _close_handler(self, ev):
-        await super().close_handler(ev=ev)
-        self.destroy_session(self)
-
 
