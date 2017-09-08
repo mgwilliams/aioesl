@@ -42,10 +42,9 @@ class OutboundSession(Session):
 
             if self not in list_outbounds:
                 list_outbounds.append(self)
-                self.ld2("Добавил в список подключений %s" % str(self))
-
-            self.ld2("Всего исходящих подключений: %s" % len(list_outbounds))
-            self.ld2("Текущие подключения \n %s" % list_outbounds)
+                self.ld1("Добавил в список подключений %s" % str(self))
+                self.ld2("Всего исходящих подключений: %s" % len(list_outbounds))
+                self.ld2("Текущие подключения \n %s" % list_outbounds)
 
             if self.password is None:
                 self.ready.set_result(True)
