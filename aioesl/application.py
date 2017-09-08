@@ -44,10 +44,6 @@ class OutboundSession(Session):
                 list_outbounds.append(self)
                 self.ld2("Добавил в список подключений %s" % str(self))
 
-            if len(list_outbounds) > 100:
-                self.lw("Много исходящих подключений: %s" % len(list_outbounds))
-                self.lw("Текущие подключения \n %s" % list_outbounds)
-
             self.ld2("Всего исходящих подключений: %s" % len(list_outbounds))
             self.ld2("Текущие подключения \n %s" % list_outbounds)
 
