@@ -91,7 +91,6 @@ class OutboundSession(Session):
             if asyncio.iscoroutine(cb):
                 await cb
 
-
     async def reconnection(self):
         self.cur_retry += 1
         self.ready = asyncio.Future()
