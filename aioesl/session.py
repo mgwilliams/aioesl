@@ -149,7 +149,8 @@ class Session(LogBase):
         try:
             self.writer.write(data)
             yield
-            yield from self.writer.drain()
+            if self.writer is not None:
+                yield from self.writer.drain()
             return True
         except:
             self.log_exc("write")
