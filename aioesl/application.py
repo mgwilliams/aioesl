@@ -31,6 +31,18 @@ class OutboundSession(Session):
     def __repr__(self):
         return "<%s at 0x%x>" % ("OutboundSession", id(self))
 
+    async def run_cb_on_connected(self):
+        self.ld("Запускаю коллбек коннекта")
+        cb = self.cb_on_connected()
+        if asyncio.iscoroutine(cb):
+            await cb
+
+    async def run_cb_on_disconnect(self):
+        self.ld("Запускаю коллбек дисконнекта")
+        cb = self.cb_on_disconnect()
+        if asyncio.iscoroutine(cb):
+            await cb
+
     async def open_connection(self):
         self.status = SESSION_STATUS_NEW
         if self.reader is not None:
@@ -53,10 +65,7 @@ class OutboundSession(Session):
 
             self.ld2("Авторизация пройдена")
             if self.cb_on_connected is not None:
-                cb = self.cb_on_connected()
-                if asyncio.iscoroutine(cb):
-                    await cb
-
+                asyncio.ensure_future(self.run_cb_on_connected())
         except OSError as err:
             self.le("Ошибка установки подлючения OSError %s." % err.errno)
             self.status = SESSION_STATUS_CLOSING
@@ -87,15 +96,15 @@ class OutboundSession(Session):
             self.ld3("Удаляю исходящее подключение %s" % str(self))
 
         if self.cb_on_disconnect is not None:
-            cb = self.cb_on_disconnect()
-            if asyncio.iscoroutine(cb):
-                await cb
+            asyncio.ensure_future(self.run_cb_on_disconnect())
 
     async def reconnection(self):
         self.cur_retry += 1
         self.ready = asyncio.Future()
         self.li("Следующая попытка подключения через %s секунд" % self.retry_sleep)
         self.status = SESSION_STATUS_RECONNETING
+        if self.cb_on_disconnect is not None:
+            asyncio.ensure_future(self.run_cb_on_disconnect())
         await asyncio.sleep(self.retry_sleep)
         await self.open_connection()
 

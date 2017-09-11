@@ -129,8 +129,7 @@ class Session(LogBase):
             out = b"".join([s.encode() for s in ln])
             try:
                 if self.writer is not None:
-                    self.write(out)
-                    # asyncio.ensure_future(self.writer.drain())
+                    asyncio.ensure_future(self.write(out))
                     return True
                 else:
                     asyncio.ensure_future(self.close_handler(ev={}))
@@ -144,10 +143,17 @@ class Session(LogBase):
             asyncio.ensure_future(self.close_handler(ev={}))
             return False
 
+    @asyncio.coroutine
     def write(self, data):
-        # self.li(("write", self.connected, self.status))
         self.ld5(("write", data))
-        self.writer.write(data)
+        try:
+            self.writer.write(data)
+            yield
+            yield from self.writer.drain()
+            return True
+        except:
+            self.log_exc("write")
+            return False
 
     @safe_send(timeout=30)
     def protocol_send(self, name, args=""):
@@ -192,7 +198,7 @@ class Session(LogBase):
 
         ev = (headers + body + CMD_DELIMITER)  # ev is encoded
         if self.writer is not None:
-            self.write(ev.encode())
+            asyncio.ensure_future(self.write(ev.encode()))
             self.ev_queue.append((name, future, time_future))
             return future
         return self.err_response("Writer is closed")
