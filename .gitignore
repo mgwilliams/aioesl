@@ -26,6 +26,7 @@ aioesl/aioesl/__pycache__
 ## File-based project format:
 *.iws
 
+
 ## Plugin-specific files:
 
 # IntelliJ
