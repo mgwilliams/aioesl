@@ -76,7 +76,8 @@ class Session(LogBase):
     def connected(self):
         return True if self.status == SESSION_STATUS_CONNECTED else False
 
-    async def close_handler(self, **kwargs):
+    def close(self):
+        # self.ld("close_handler kw %s" % kwargs)
         if self.status not in [SESSION_STATUS_CLOSED, SESSION_STATUS_CLOSING]:
             self.status = SESSION_STATUS_CLOSING
             if self.reader is not None:
@@ -94,6 +95,11 @@ class Session(LogBase):
             self.parser.set_reader(self.reader)
             self.reset()
             self.ld3("Закрываю соединение %s." % self)
+
+            asyncio.ensure_future(self.application_close_handler())
+
+    async def application_close_handler(self):
+        pass
 
     @property
     def peer(self):
@@ -119,39 +125,43 @@ class Session(LogBase):
                 self.log_exc("_check_timeout Очередь пуста. F = %s" % str(f))
 
             f.set_result({'Content-Type': 'Error/response', 'ErrorResponse': "TimeOut"})
-            res = self.close_handler(ev={})
-            if asyncio.coroutines.iscoroutine(res):
-                await res
+            self.close()
+            # if asyncio.coroutines.iscoroutine(res):
+            #     await res
 
     def writeln(self, ln=[]):
         try:
             ln.append(CMD_DELIMITER)
             out = b"".join([s.encode() for s in ln])
             try:
-                if self.writer is not None:
+                if self.writer is not None and self.writer.transport is not None and not self.writer.transport._conn_lost:
                     asyncio.ensure_future(self.write(out))
                     return True
                 else:
-                    asyncio.ensure_future(self.close_handler(ev={}))
+                    self.close()
                     return False
             except:
                 self.log_exc("_writeln %s" % out)
-                asyncio.ensure_future(self.close_handler(ev={}))
+                self.close()
                 return False
         except:
             self.log_exc("_writeln  2")
-            asyncio.ensure_future(self.close_handler(ev={}))
+            self.close()
             return False
 
     @asyncio.coroutine
     def write(self, data):
         self.ld5(("write", data))
         try:
-            self.writer.write(data)
-            yield
-            if self.writer is not None:
-                yield from self.writer.drain()
-            return True
+            if self.writer is not None and self.writer.transport is not None and not self.writer.transport._conn_lost:
+                self.writer.write(data)
+                yield
+                if self.writer is not None:
+                    yield from self.writer.drain()
+                return True
+            else:
+                self.close()
+                return False
         except:
             self.log_exc("write")
             return False
@@ -236,7 +246,7 @@ class Session(LogBase):
         self.ld5(("text_rude_rejection", ev))
         if ev.get("DataResponse") == "Access Denied, go away.\n":
             self.lw(ev.get("DataResponse"))
-            await self.close_handler(ev=ev)
+            self.close()
         else:
             aioesl_log.info(str(ev))
 
@@ -313,7 +323,7 @@ class Session(LogBase):
 
     async def text_disconnect_notice(self, ev):
         self.ld5(("text_disconnect_notice", ev))
-        await self.close_handler(ev={})
+        self.close()
 
     async def rude_rejection(self, ev):
         aioesl_log.warning(ev.get("DataResponse"))

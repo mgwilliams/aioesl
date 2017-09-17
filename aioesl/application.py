@@ -31,12 +31,6 @@ class OutboundSession(Session):
     def __repr__(self):
         return "<%s at 0x%x>" % ("OutboundSession", id(self))
 
-    async def run_cb_on_connected(self):
-        self.ld("Запускаю коллбек коннекта")
-        cb = self.cb_on_connected()
-        if asyncio.iscoroutine(cb):
-            await cb
-
     async def run_cb_on_disconnect(self):
         self.ld("Запускаю коллбек дисконнекта")
         cb = self.cb_on_disconnect()
@@ -50,7 +44,8 @@ class OutboundSession(Session):
         try:
             self.ld4("Новое исходящее подключение %s. Попытка %s" % (str(self), self.cur_retry))
             self.parser.reader, self.writer = await open_connection(self.host, self.port, loop=self.loop)
-            self.data_reader = asyncio.ensure_future(self.parser.read_from_connection())
+            if self.data_reader is None:
+                self.data_reader = asyncio.ensure_future(self.parser.read_from_connection())
 
             if self not in list_outbounds:
                 list_outbounds.append(self)
@@ -65,22 +60,20 @@ class OutboundSession(Session):
 
             self.ld2("Авторизация пройдена")
             if self.cb_on_connected is not None:
-                asyncio.ensure_future(self.run_cb_on_connected())
+                await self.cb_on_connected()
+
         except OSError as err:
             self.le("Ошибка установки подлючения OSError %s." % err.errno)
-            self.status = SESSION_STATUS_CLOSING
-            await self.close_handler()
-            asyncio.ensure_future(self.reconnection())
-
+            self.close()
         except:
             self.log_exc("open_connection")
-            self.status = SESSION_STATUS_CLOSING
-            await self.close_handler()
-            asyncio.ensure_future(self.reconnection())
+            self.close()
 
-    async def close_handler(self, **kwargs):
-        await super().close_handler(**kwargs)
-        if self.reconnect:
+    async def application_close_handler(self, **kwargs):
+        self.data_reader = None
+
+        if self.reconnect and self.status != SESSION_STATUS_RECONNETING:
+            self.status = SESSION_STATUS_RECONNETING
             if self.retries == 0 or self.retries < self.cur_retry:
                 self.lw("Переподключаем ESL соединение")
                 await self.reconnection()
@@ -102,7 +95,6 @@ class OutboundSession(Session):
         self.cur_retry += 1
         self.ready = asyncio.Future()
         self.li("Следующая попытка подключения через %s секунд" % self.retry_sleep)
-        self.status = SESSION_STATUS_RECONNETING
         if self.cb_on_disconnect is not None:
             asyncio.ensure_future(self.run_cb_on_disconnect())
         await asyncio.sleep(self.retry_sleep)
@@ -165,12 +157,12 @@ class Server:
         except Exception as error:
             aioesl_log.exception(error)
         finally:
-            session.ld("Текущий статус активна %s" % session.connected)
+            session.ld3("Текущий статус активна %s" % session.connected)
 
             if session.connected:
                 await session.exit()
 
-            await session.close_handler()
+            session.close()
             await self.destroy_session(session)
 
     async def destroy_session(self, session):

@@ -21,7 +21,7 @@ class EventParser:
         self.ev = {}
         self.session = kwargs.get("session")
         self.peername = None
-        # self.readline_process = None
+        self.readline_process = None
 
     def set_reader(self, reader):
         self.reader = reader
@@ -30,15 +30,15 @@ class EventParser:
         if self.reader is not None:
             self.peername = self.reader._transport.get_extra_info('peername')
 
-        while self.reader is not None and not self.reader.at_eof():
-            try:
-                line = await self.reader.readline()
+        try:
+            while self.reader is not None and not self.reader.at_eof():
+                self.readline_process = self.reader.readline()
+                line = await self.readline_process
                 if self.session.status in [SESSION_STATUS_CLOSED, SESSION_STATUS_CLOSING]:
                     # self.session.li(">>>>>>>>>>>>>>>>>>>")
                     break
 
                 if line == b'':
-                    await self.session.close_handler(ev={})
                     break
 
                 self.last_line = [self.last_line[-1], line]
@@ -68,28 +68,27 @@ class EventParser:
                     else:
                         self.ev.update(ev_attr)
 
-            except SocketError as e:
-                aioesl_log.exception("read_from_connection")
-                if e.errno != errno.ECONNRESET:
-                    self.session.lw("read_from_connection SocketError")
-                    if not self.reader.at_eof():
-                        self.reader.feed_eof()
-
-                else:
-                    self.session.lw("SocketError Разрыв соединения")
-                    if self.reader is not None and not self.reader.at_eof():
-                        self.reader.feed_eof()
-
-            except CancelledError:
-                if self.session.status not in [SESSION_STATUS_CLOSING, SESSION_STATUS_CLOSED]:
-                    self.session.lw("Close connection %s by Cancelled!" % str(self.peername))
-                    if self.reader is not None and not self.reader.at_eof():
-                        self.reader.feed_eof()
-
-            except:
-                self.session.log_exc("read_from_connection")
+        except SocketError as e:
+            aioesl_log.exception("read_from_connection")
+            if e.errno != errno.ECONNRESET:
+                self.session.lw("read_from_connection SocketError")
+                if not self.reader.at_eof():
+                    self.reader.feed_eof()
+            else:
+                self.session.lw("SocketError Разрыв соединения")
                 if self.reader is not None and not self.reader.at_eof():
                     self.reader.feed_eof()
+        except CancelledError:
+            if self.session.status not in [SESSION_STATUS_CLOSING, SESSION_STATUS_CLOSED]:
+                self.session.lw("Close connection %s by Cancelled!" % str(self.peername))
+                if self.reader is not None and not self.reader.at_eof():
+                    self.reader.feed_eof()
+        except:
+            self.session.log_exc("read_from_connection")
+            if self.reader is not None and not self.reader.at_eof():
+                self.reader.feed_eof()
+        finally:
+            self.session.close()
 
     def dispatch_event(self):
         ev = self.ev.copy()
