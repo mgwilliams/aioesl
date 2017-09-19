@@ -60,7 +60,8 @@ class OutboundSession(Session):
 
             self.ld2("Авторизация пройдена")
             if self.cb_on_connected is not None:
-                await self.cb_on_connected()
+                #Коллбек может запускать модули, которые участвуют в обработке.
+                asyncio.ensure_future(self.cb_on_connected())
 
         except OSError as err:
             self.le("Ошибка установки подлючения OSError %s." % err.errno)
